@@ -13,6 +13,8 @@ Every task that touches equations, constants or results ends with a `physics-rev
 
 ## Release 0.2.0 — v2 ported, behaviour-identical
 
+**Status (14 Nov 2026):** P1–P4 done on branch `task/P1-P4-port-v2`, awaiting Chris's review. The stored reference uses 300 synthetic cases per run (15 runs), not 2000, to keep the fixtures small; the port was also checked against v2 on the full ROVER record outside the repository. P5 is open.
+
 | ID | Task | Tier | Depends | Where | Acceptance criteria |
 |---|---|---|---|---|---|
 | P1 | Port the ice physics from v2 into modules (`thermo`, `stability`, `roughness`, `form_drag`, `most`, `surface_temperature`) with no change in behaviour | opus | – | cloud | Each function gives the same output as its v2 counterpart on stored reference inputs (relative tolerance 1e-12). No NOAA or Blomquist code copied. |

@@ -25,6 +25,11 @@ I wanted to let you know before releasing anything, and to ask two things:
    those attributes, and the functions in `pycoare.util`, something you consider stable
    across 0.x releases?
 
+One thing we noticed that you may want to know about: in pycoare 0.4.3, when `rh` is
+passed as a float numpy array, the caller's array is changed in place (divided by 100).
+A second call with the same array then sees humidity 100 times too small. We now pass
+copies, but it could catch other users.
+
 The modules are written so they could be contributed to pycoare later if that were of
 interest to you. Thank you for maintaining pycoare.
 
