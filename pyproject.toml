@@ -1,0 +1,54 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coare-seaice"
+dynamic = ["version"]
+description = "Tile-based extension of the COARE bulk flux algorithm to sea ice and the marginal ice zone"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [{ name = "Chris Barrell" }, { name = "Ian Renfrew" }]
+keywords = ["air-sea interaction", "sea ice", "marginal ice zone", "turbulent fluxes", "COARE"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Atmospheric Science",
+]
+dependencies = [
+  "numpy>=1.23",
+  "pycoare>=0.4.3,<0.5",
+  "scipy>=1.9",
+]
+
+[project.optional-dependencies]
+verify = ["xarray>=2023.1", "pandas>=1.5", "netCDF4>=1.6", "matplotlib>=3.6"]
+dev = ["pytest>=7.4", "pytest-cov>=4.1", "hypothesis>=6.80", "ruff>=0.6", "pre-commit>=3.5"]
+docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
+
+[project.urls]
+Source = "https://github.com/cbarrell16/coare-seaice"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coare_seaice"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["needs_data: needs campaign data that is not in the repository"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "NPY"]
+ignore = ["E741"]  # single-letter names such as L (Obukhov length) are standard notation here

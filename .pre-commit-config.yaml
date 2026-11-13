@@ -1,0 +1,24 @@
+# Runs before every commit. Install once with:  pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=300]
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+  - repo: local
+    hooks:
+      - id: no-data-or-papers
+        name: block data files and PDFs (public repository)
+        entry: Data files and PDFs must not be committed. See CLAUDE.md.
+        language: fail
+        files: '\.(nc|nc4|h5|hdf5|grib|grb|mat|pdf|zip|ipynb)$'

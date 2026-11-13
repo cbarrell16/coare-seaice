@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "coare-seaice: a tile-based extension of the COARE bulk flux algorithm to sea ice and the marginal ice zone"
+type: software
+authors:
+  - family-names: Barrell
+    given-names: Chris
+    affiliation: "School of Environmental Sciences, University of East Anglia"
+  - family-names: Renfrew
+    given-names: Ian
+    affiliation: "School of Environmental Sciences, University of East Anglia"
+repository-code: "https://github.com/cbarrell16/coare-seaice"
+license: MIT
+keywords:
+  - air-sea interaction
+  - sea ice
+  - marginal ice zone
+  - turbulent fluxes
+  - COARE
+# Contributors note: parts of the code, tests and documentation were drafted with
+# the assistance of Claude large language models (Anthropic). See docs/ai_assistance.md.

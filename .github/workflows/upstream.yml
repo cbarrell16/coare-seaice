@@ -1,0 +1,37 @@
+# Weekly check against the newest pycoare, so that upstream changes are noticed
+# before they reach users. Also runnable by hand from the Actions tab.
+name: Upstream pycoare
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  latest-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,verify]"
+      - run: pip install --upgrade pycoare
+      - run: pip show pycoare
+      - run: pytest
+
+  development-branch:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,verify]"
+      - run: pip install --upgrade "git+https://github.com/pyCOARE/coare"
+      - run: pytest

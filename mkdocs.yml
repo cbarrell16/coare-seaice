@@ -1,0 +1,17 @@
+site_name: coare-seaice
+repo_url: https://github.com/cbarrell16/coare-seaice
+theme:
+  name: material
+nav:
+  - Home: index.md
+  - Caveats: caveats.md
+  - AI assistance: ai_assistance.md
+  - Design:
+      - Software design: design/software_design.md
+      - Verification study design: design/verification_design.md
+      - Paper outline: design/paper_outline.md
+  - Drafts:
+      - Note to the pycoare maintainer: drafts/pycoare_maintainer_note.md
+plugins:
+  - search
+  - mkdocstrings
