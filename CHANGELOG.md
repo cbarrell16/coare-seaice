@@ -68,6 +68,11 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   respect to ice outside 80 to 105 % where the ice concentration is at least 0.9
   (after Andreas et al. 2002; the thresholds are this package's choice, since that paper
   was not available to check). A flag only: no value is adjusted (tested).
+- **U1.** `uncertainty.ensemble`: reruns `ice_fluxes` with perturbed inputs or settings
+  (Gaussian errors as an offset per member or as noise per sample; uniform or
+  log-uniform draws for settings such as roughness) and returns percentiles of chosen
+  outputs. Reproducible with a seed; zero perturbation returns the central value
+  (both tested). It measures input uncertainty only, not errors of the method.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
