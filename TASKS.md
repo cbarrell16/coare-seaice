@@ -13,7 +13,7 @@ Every task that touches equations, constants or results ends with a `physics-rev
 
 ## Release 0.2.0 — v2 ported, behaviour-identical
 
-**Status (14 Nov 2026):** P1–P4 done on branch `task/P1-P4-port-v2`, awaiting Chris's review. The stored reference uses 300 synthetic cases per run (15 runs), not 2000, to keep the fixtures small; the port was also checked against v2 on the full ROVER record outside the repository. P5 is open.
+**Status (14 Nov 2026):** P1–P4 done on branch `task/P1-P4-port-v2`, awaiting Chris's review. The stored reference uses 300 synthetic cases per run (15 runs), not 2000, to keep the fixtures small; the port was also checked against v2 on the full ROVER record outside the repository. P5 done 16 Nov: on the UEA machine the ice-only columns are identical to v2, open-water columns within 0.04 W m⁻², no NaN mismatches; the ROVERview notebook `00_campaign_data` now uses `coare_seaice.legacy` with `air_freezing`, and the shared ROVER flux file has been regenerated.
 
 | ID | Task | Tier | Depends | Where | Acceptance criteria |
 |---|---|---|---|---|---|
