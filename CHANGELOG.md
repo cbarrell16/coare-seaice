@@ -27,6 +27,14 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   taken from the water fraction (default; no form drag) or from the ice fraction.
   The thin-ice defaults (0.1 m of bare ice) are provisional until task T10. Blended
   results carry quality flags that never change a value.
+- **T4.** Blend mode `single_temperature`: every tile is solved with one aggregate
+  surface temperature (given, for example from a radiometer, or the area mean of the
+  tile temperatures). In neutral conditions this is the coefficient blending of
+  Elvidge et al. (2021, Eq. 12), tested to 3 %; it equals flux mode when all tiles
+  share one temperature (tested to rounding). Each tile keeps its own stability
+  correction, and the open-water tile is run at the aggregate temperature without the
+  cool-skin correction. Turbulent fluxes without the cool-skin correction no longer
+  need radiation inputs (for aircraft runs).
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 

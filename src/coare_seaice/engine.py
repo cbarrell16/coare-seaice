@@ -17,13 +17,13 @@ from .most import DEFAULT_OPTIONS, V2_OPTIONS, bulk_richardson, ice_surface_laye
 from .openwater import open_water
 from .results import BlendedResult, FluxResult, TileResult
 from .roughness import ICE_Z0_DEFAULT
-from .surface_temperature.methods import AirFreezing, TileContext
+from .surface_temperature.methods import AirFreezing, SurfaceTemperature, TileContext
 from .surface_temperature.seb import seb_terms, surface_albedo
 from .tiles import tile_fractions
 
 NITS = 10  # iterations of the ice surface-layer loop
 LIGHT_WIND = 1.0  # m s-1; Grachev et al. (2007) excluded winds of 1 m s-1 and below
-BLEND_MODES = ("flux",)
+BLEND_MODES = ("flux", "single_temperature")
 
 
 @dataclass
@@ -61,11 +61,21 @@ def _per_sample(x, n):
 
 
 def run_open_water(F, coare="3.5", zrf=10.0, sst=None, jcool=None):
-    """pycoare for the open-water tile (reference height ``zrf``)."""
+    """pycoare for the open-water tile (reference height ``zrf``).
+
+    Without the cool-skin correction (jcool = 0) the turbulent fluxes do not depend on
+    the radiation (tested), but pycoare returns NaN if it is NaN. Missing radiation is
+    then replaced by zero for this call only, so that data without radiation (aircraft
+    runs) can be used; nothing that is returned depends on the replacement.
+    """
+    jcool = F.jcool if jcool is None else jcool
+    rs, rl = F.sw_down, F.lw_down
+    if jcool == 0:
+        rs, rl = np.where(np.isfinite(rs), rs, 0.0), np.where(np.isfinite(rl), rl, 0.0)
     return open_water(
-        F.u, F.t, F.rh, F.sst if sst is None else sst, p=F.p, rs=F.sw_down, rl=F.lw_down,
+        F.u, F.t, F.rh, F.sst if sst is None else sst, p=F.p, rs=rs, rl=rl,
         zu=F.zu, zt=F.zt, zq=F.zq, lat=F.lat, zi=F.zi, rain=F.rain, cp=F.cp, sigH=F.sigH,
-        jcool=F.jcool if jcool is None else jcool, zrf=zrf, version=coare,
+        jcool=jcool, zrf=zrf, version=coare,
         salinity=F.salinity,
     )  # fmt: skip
 
@@ -120,8 +130,8 @@ def _ice_tile(tile, fraction, F, ow, q_air, default_method, default_z0, options,
         sic=F.sic, flux=flux, h_ice=h_ice, h_snow=h_snow, k_snow=k_snow, albedo=albedo,
         t_base=t_base, time=F.time, v2_compat=v2_compat,
     )  # fmt: skip
-    st = method.solve(ctx)
-    Ts = st.t_surface if t_fixed is None else t_fixed
+    st = method.solve(ctx) if t_fixed is None else SurfaceTemperature(t_fixed)
+    Ts = st.t_surface
     fl = flux(Ts)
     lw_net, sw_net, f_cond = seb_terms(Ts, F.lw_down, F.sw_down, albedo, ctx.conductance, t_base)
     balanced = getattr(method, "energy_balance", False) and t_fixed is None
@@ -135,7 +145,7 @@ def _ice_tile(tile, fraction, F, ow, q_air, default_method, default_z0, options,
     used = [F.u, F.t, F.rh, F.p, F.lat, F.sic, Ts]
     if balanced:
         used += [F.lw_down, F.sw_down, h_ice, h_snow, albedo]
-    filled = np.zeros(n, dtype=bool) if st.filled is None or t_fixed is not None else st.filled
+    filled = np.zeros(n, dtype=bool) if st.filled is None else st.filled
     return TileResult(
         name=tile.name, kind="ice", fraction=fraction, tau=fl["tau"], hsb=fl["hsb"],
         hlb=fl["hlb"], usr=fl["usr"], t_surface=Ts, q_surface=fl["Qs"], z0=z0, z0t=fl["z0T"],
@@ -162,10 +172,28 @@ def compute(
     z0_ice=None,
     options=None,
     rh_reference="water",
+    t_surface=None,
     open_water_result=None,
     v2_compat=False,
 ):
-    """Solve the tiles for forcing ``F`` and blend them. Returns a FluxResult."""
+    """Solve the tiles for forcing ``F`` and blend them. Returns a FluxResult.
+
+    blend="flux": each tile has its own surface temperature and stability, and the
+    fluxes are averaged by area (a mosaic).
+
+    blend="single_temperature": every tile is solved with one aggregate surface
+    temperature, so the tiles differ only in roughness, surface humidity (saturation
+    over ice or water at that temperature) and latent heat. In neutral conditions the
+    area-mean heat flux is then the area mean of the tiles' neutral transfer
+    coefficients times one temperature difference, which is the blending of
+    Elvidge et al. (2021, Eq. 12), here at the measurement height. Each tile keeps its
+    own stability correction. The aggregate temperature is ``t_surface`` (deg C, for
+    example from a radiometer); if None it is the area mean of the tile temperatures
+    from a first pass in flux mode (as Andreas et al. 2010, Eq. 6.4). The open-water
+    tile is run with that temperature in place of the SST and without the cool-skin
+    correction, even when it is below the freezing point of sea water. Ice tiles cap
+    the surface at 0 C, so above 0 C the temperature is no longer single.
+    """
     if blend not in BLEND_MODES:
         raise ValueError(f"blend must be one of {BLEND_MODES}")
     options = V2_OPTIONS if v2_compat else (options or DEFAULT_OPTIONS)
@@ -184,15 +212,29 @@ def compute(
     else:
         raise ValueError("rh_reference must be 'water' or 'ice'")
 
-    results = {}
-    for tile in tiles:
-        f = fractions[tile.name]
-        if tile.kind == "water":
-            results[tile.name] = _water_tile(tile, f, ow, F, F.sst)
+    def solve_all(ow, sst, t_fixed=None):
+        out = {}
+        for tile in tiles:
+            f = fractions[tile.name]
+            if tile.kind == "water":
+                out[tile.name] = _water_tile(tile, f, ow, F, sst)
+            else:
+                out[tile.name] = _ice_tile(tile, f, F, ow, q_air, default_method, default_z0,
+                                           options, v2_compat, t_fixed)  # fmt: skip
+        return out
+
+    if blend == "flux":
+        if t_surface is not None:
+            raise ValueError("t_surface is only used with blend='single_temperature'")
+        results = solve_all(ow, F.sst)
+    else:
+        if t_surface is None:
+            first = solve_all(ow, F.sst).values()
+            t_agg = sum(r.fraction * r.t_surface for r in first)
         else:
-            results[tile.name] = _ice_tile(
-                tile, f, F, ow, q_air, default_method, default_z0, options, v2_compat
-            )
+            t_agg = _per_sample(t_surface, F.n)
+        ow = run_open_water(F, coare, sst=t_agg, jcool=0)
+        results = solve_all(ow, t_agg, t_fixed=t_agg)
     water = next(r for r in results.values() if r.kind == "water")
 
     # Floe-edge form drag (momentum only): neutral 10 m coefficient x U10N^2 over water.
@@ -205,7 +247,7 @@ def compute(
 
     blended = BlendedResult(
         tau=area_mean("tau") + tau_form, hsb=area_mean("hsb"), hlb=area_mean("hlb"),
-        tau_form=tau_form, t_surface=area_mean("t_surface"),
+        tau_form=tau_form, t_surface=area_mean("t_surface") if blend == "flux" else t_agg,
         cdn10=area_mean("cdn10") + cdn10_form, chn10=area_mean("chn10"),
         cen10=area_mean("cen10"), cdn10_form=cdn10_form,
     )  # fmt: skip
