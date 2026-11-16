@@ -44,6 +44,8 @@ Each fix states in `CHANGELOG.md` how much results move on the reference fixture
 
 ## Release 0.4.0 — tiles, stability options, new interface
 
+**Status (16 Nov 2026):** T1-T9 and U1 done on branch `release/0.4.0` (one commit per task), with a physics review applied in a final commit. Results of `legacy.coare35vn_ice` and of the `ice_fluxes` defaults are unchanged from 0.3.0. T10 (thin-ice defaults) not built: a proposal with evidence will follow from the aircraft experiments in 0.5.0; the thin-ice tile's provisional defaults are 0.1 m of bare ice.
+
 | ID | Task | Tier | Depends | Where | Acceptance criteria |
 |---|---|---|---|---|---|
 | T1 | `results.py`: named outputs per tile and blended, QC flags, `to_xarray()` | sonnet | P3 | cloud | Round-trips to the legacy array for the two-tile case. |
