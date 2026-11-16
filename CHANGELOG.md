@@ -15,6 +15,11 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   with documented meanings. `to_xarray()` gives a labelled dataset with units;
   `to_legacy_array()` / `from_legacy_array()` convert to and from the old array for
   the two-tile case (round trip tested).
+- **T2.** Surface temperature methods as classes behind one interface
+  (`surface_temperature.methods`): `AirFreezing`, `AirCapped`, `Empirical`,
+  `Prescribed`, `SEB` and the experimental `Column`. A method is any object with a
+  `solve(ctx)` method, so a new one needs no change elsewhere (tested). They give the
+  same numbers as the existing functions.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
