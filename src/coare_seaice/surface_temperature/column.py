@@ -13,6 +13,7 @@ from ..thermo import T_FREEZE_SW, TK0, dqsat_ice_dt, qsat_ice
 from .properties import (
     BETA_K,
     C_ICE0,
+    C_ICE0_V2,
     C_SNOW,
     K_ICE_FRESH,
     K_SNOW,
@@ -29,8 +30,8 @@ class IceColumn:
 
     - Fully implicit (backward Euler) time stepping on a snow layer over ice; interface
       conductances from the harmonic mean.
-    - Salinity-dependent ice conductivity and heat capacity (Untersteiner 1961; Bitz &
-      Lipscomb 1999), updated by Picard iteration each step.
+    - Salinity-dependent ice conductivity and heat capacity (Bitz & Lipscomb 1999, who
+      cite Untersteiner 1964 for the conductivity), updated by Picard iteration each step.
     - Upper boundary: a zero-heat-capacity surface node closed by the SEB
 
           0 = F_cond + eps LWd + (1 - alb) SWd - eps sigma Ts^4 - SH(Ts) - LH(Ts),
@@ -94,11 +95,12 @@ class IceColumn:
 
     def _rhoc(self, T):
         rc = np.full(self.J, self.rho_snow * C_SNOW)
+        c0 = C_ICE0_V2 if self.v2_compat else C_ICE0
         if self.salinity_dependent:
             Ti = np.minimum(T[~self.is_snow], -0.1)
-            rc[~self.is_snow] = RHO_ICE * (C_ICE0 + L0_MU * self.s_ice / Ti**2)
+            rc[~self.is_snow] = RHO_ICE * (c0 + L0_MU * self.s_ice / Ti**2)
         else:
-            rc[~self.is_snow] = RHO_ICE * C_ICE0
+            rc[~self.is_snow] = RHO_ICE * c0
         return rc
 
     def _conductances(self, T):

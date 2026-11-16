@@ -83,6 +83,14 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   including the `t_ice_fallback` of `prescribed`) and `missing_input`. The default of
   `t_ice_fallback` is unchanged (`seb_steady`); pass `None` for no fill.
   **No change on the reference fixture** (all ten runs identical).
+- **F9.** Constants and citations. Fresh-ice heat capacity is 2110 J kg-1 K-1 (Bitz &
+  Lipscomb 1999, Eq. 1) in place of 2106. The conductivity formula is cited to
+  Untersteiner (1964) through Bitz & Lipscomb (1999), not Untersteiner (1961). The
+  form-drag term is cited as Lupkes et al. (2012) Eq. 51 (their Eq. 22 is the total
+  drag). Reference fixture, `diffusion` run: T_ice changes by at most 6e-7 K and the
+  fluxes by at most 5e-6 W m-2. All other methods are unchanged (the heat capacity is
+  used only by the column model). The snow heat capacity stays at the v2 value 2106,
+  which has no stated source.
 
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 
