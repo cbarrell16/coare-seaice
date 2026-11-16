@@ -114,7 +114,8 @@ def coare35vn_ice(
 
     Open-water inputs: u (m/s at zu), t (C at zt), rh (% over liquid water at zq),
     ts (C), P (mb), Rs, Rl (downwelling SW, LW, W m-2; also used in the ice SEB), zu, zt,
-    zq (m, scalars), lat, zi (m), rain (mm/h), cp, sigH, jcool.
+    zq (m; scalars of any real number type, or one value per sample), lat, zi (m),
+    rain (mm/h), cp, sigH, jcool.
 
     Ice inputs:
         ice_conc        sea-ice concentration 0-1 (None: open water only, 38 columns)
@@ -179,10 +180,11 @@ def coare35vn_ice(
     elif cp is not None:
         print("Using waveage dependent parameterization")
     jcool = 0 if jcool == 0 else 1
-    # AUDIT F8: heights must be Python int or float scalars (to be changed in task F8).
-    if not all(isinstance(z, (int, float)) for z in (zu, zt, zq)):
-        raise ValueError("coare35vn_ice: zu, zt, zq should be constants")
-    zu_a, zt_a, zq_a = zu * np.ones(N), zt * np.ones(N), zq * np.ones(N)
+    # Heights: any real number type, scalar or one value per sample.
+    zu_a, zt_a, zq_a = (_per_sample(z, N, name) for z, name in ((zu, "zu"), (zt, "zt"), (zq, "zq")))
+    for z, name in ((zu_a, "zu"), (zt_a, "zt"), (zq_a, "zq")):
+        if np.any(z <= 0):  # NaN heights pass and give NaN fluxes
+            raise ValueError(f"coare35vn_ice: {name} must be positive")
 
     # ---- ice inputs ----------------------------------------------------------------------
     ice_active = ice_conc is not None and ice_scheme != "open_ocean"
