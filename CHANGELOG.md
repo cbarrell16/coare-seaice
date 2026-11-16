@@ -4,6 +4,18 @@ All changes that alter results are recorded here, with their size.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [semantic versioning](https://semver.org/).
 
+## [0.4.0] - unreleased (branch `release/0.4.0`)
+
+Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results of
+`legacy.coare35vn_ice` or of the default settings.
+
+### Added
+- **T1.** `results.FluxResult`: named results in place of a 56-column array. It holds
+  the blended (area-mean) fluxes, one `TileResult` per surface tile, and quality flags
+  with documented meanings. `to_xarray()` gives a labelled dataset with units;
+  `to_legacy_array()` / `from_legacy_array()` convert to and from the old array for
+  the two-tile case (round trip tested).
+
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
 Audit fixes F1-F10. "Reference fixture" below means the 300 synthetic polar cases in
