@@ -128,10 +128,26 @@ names = list(legacy.OUTPUT_COLUMNS)
 # ---------------------------------------------------------------------------
 # 1. Check against v2
 # ---------------------------------------------------------------------------
+v2 = None
 if V2_DIR is not None and (Path(V2_DIR) / "coare35vn_ice.py").exists():
+    import inspect
+
     sys.path.insert(0, str(V2_DIR))
     import coare35vn_ice as v2  # noqa: E402
 
+    v2_version = getattr(v2, "__version__", "unknown")
+    if "t_ice_method" not in inspect.signature(v2.coare35vn_ice).parameters:
+        log.info(
+            f"The coare35vn_ice.py in {V2_DIR} (version {v2_version}) has no 't_ice_method' "
+            "argument, so it is v1, not v2.0.0. Check against v2 skipped.\n"
+            "To run the check, put the v2.0.0 files (coare35vn_ice.py, "
+            "ice_surface_temperature.py, meteo.py, util.py) in that folder.\n"
+        )
+        v2 = None
+elif V2_DIR is not None:
+    log.info(f"No coare35vn_ice.py in {V2_DIR}: check against v2 skipped.\n")
+
+if v2 is not None:
     old = run(v2.coare35vn_ice)
     log.info(f"Check against v2 {getattr(v2, '__version__', '?')} (air_freezing):")
     log.info(f"{'col':>3s} {'name':12s} {'max |diff|':>11s} {'max rel':>9s} {'NaN mismatch':>12s}")
@@ -152,8 +168,8 @@ if V2_DIR is not None and (Path(V2_DIR) / "coare35vn_ice.py").exists():
         "and the NOAA code differ slightly in gravity and a few constants; no NaN mismatches."
     )
     log.info(f"Largest difference in an ice-only column: {worst_ice:.3g}\n")
-else:
-    log.info("v2 folder not found: check against v2 skipped.\n")
+elif V2_DIR is None:
+    log.info("V2_DIR is None: check against v2 skipped.\n")
 
 # ---------------------------------------------------------------------------
 # 2. Write the reprocessed fluxes
