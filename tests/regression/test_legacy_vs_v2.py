@@ -31,8 +31,7 @@ import numpy as np
 import pytest
 
 from coare_seaice import thermo
-from coare_seaice.legacy import OUTPUT_COLUMNS, _ice_columns, coare35vn_ice
-from coare_seaice.most import V2_OPTIONS
+from coare_seaice.legacy import OUTPUT_COLUMNS, _ice_columns, coare35vn_ice, open_water_stub
 from conftest import REF_DIR, assert_port, load_ref, resolve_kwargs
 
 RTOL_OW = 2e-3
@@ -108,12 +107,14 @@ def test_ice_columns_exact_given_v2_open_water(inputs, name):
         method = "prescribed"
     # v2's open-water roughness from its Cdn_10 column: Cdn_10 = 1e3 k^2 / ln(10/zo)^2.
     zo_v2 = 10.0 / np.exp(0.4 / np.sqrt(A[:, 30] / 1000.0))
+    stub = open_water_stub(
+        rhoa=A[:, 26], q_air=thermo.specific_humidity(t, P, rh), zo=zo_v2, u_n_rf=A[:, 29],
+        tau=A[:, 1], hsb=A[:, 2], hlb=A[:, 3],
+    )  # fmt: skip
     cols, _ = _ice_columns(
-        u=inputs["u"], t=t, rh=rh, P=P, Rs=kw["Rs"], Rl=kw["Rl"],
-        grav=thermo.gravity(kw["lat"]),
-        zu=kw["zu"] * np.ones(n), zt=kw["zt"] * np.ones(n), zq=kw["zq"] * np.ones(n),
-        q_air=thermo.specific_humidity(t, P, rh), rhoa=A[:, 26], zo_w=zo_v2,
-        u10n_w=A[:, 29], tau_w=A[:, 1], hsb_w=A[:, 2], hlb_w=A[:, 3],
+        u=inputs["u"], t=t, rh=rh, ts=inputs["ts"], P=P, Rs=kw["Rs"], Rl=kw["Rl"],
+        lat=kw["lat"], zi=600.0, zu=kw["zu"] * np.ones(n), zt=kw["zt"] * np.ones(n),
+        zq=kw["zq"] * np.ones(n), ow=stub,
         A_ice=np.where(np.isfinite(sic), np.clip(sic, 0, 1), np.nan),
         z0_ice=5e-4, ice_scheme=kw.get("ice_scheme", "blended_a87"), scalar_ratio=0.2,
         t_ice_method=method, t_ice=kw.get("t_ice"),
@@ -121,8 +122,8 @@ def test_ice_columns_exact_given_v2_open_water(inputs, name):
         h_ice=h_ice, h_snow=h_snow, k_snow=kw.get("k_snow", 0.31),
         albedo=np.where(h_snow > 0.02, 0.85, 0.65), t_base=-1.8,
         t_ice_offset=kw.get("t_ice_offset", 2.0), time_s=kw.get("time_s"),
-        diffusion_kwargs=None, rh_reference=kw.get("rh_reference", "water"), verbose=False,
-        options=V2_OPTIONS, v2_compat=True,
+        diffusion_kwargs=None,
+        rh_reference=kw.get("rh_reference", "water"), verbose=False, v2_compat=True,
     )  # fmt: skip
     for j, col in enumerate(cols):
         name_j = OUTPUT_COLUMNS[38 + j]

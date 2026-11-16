@@ -2,7 +2,8 @@
 
 Same call signature, defaults and output columns as ``coare35vn_ice.py`` version 2.0.0
 (Nov 2026). Open-water columns 0-37 come from ``pycoare`` (through
-:mod:`coare_seaice.openwater`); ice columns 38-55 from the ported ice modules.
+:mod:`coare_seaice.openwater`); ice columns 38-55 from :func:`coare_seaice.ice_fluxes`
+with two tiles, of which this is a thin wrapper.
 
 Open-water columns differ slightly from v2, which ran its own copy of the NOAA COARE 3.5
 loop: pycoare uses WGS84 gravity, exact 1/3 and 2/3 exponents and constants in a few
@@ -21,28 +22,30 @@ Columns (heat fluxes positive upward):
 
 from __future__ import annotations
 
-import warnings
+from types import SimpleNamespace
 
 import numpy as np
 
-from . import thermo
-from .form_drag import lupkes_form_drag
-from .most import DEFAULT_OPTIONS, V2_OPTIONS, ice_surface_layer
+from .api import ice_fluxes
 from .openwater import open_water
+from .results import _LEGACY_ICE
 from .roughness import ICE_Z0_DEFAULT, SCALAR_RATIO
-from .surface_temperature import simple
-from .surface_temperature.column import IceColumn
-from .surface_temperature.properties import K_ICE_FRESH, K_SNOW
-from .surface_temperature.seb import (
-    effective_conductance,
-    seb_terms,
-    solve_seb_steady,
-    surface_albedo,
+from .surface_temperature.methods import (
+    SEB,
+    AirCapped,
+    AirFreezing,
+    Column,
+    Empirical,
+    Prescribed,
 )
+from .surface_temperature.properties import K_SNOW
+from .surface_temperature.seb import surface_albedo
+from .thermo import T_FREEZE_SW
+from .tiles import two_tile
 
 __all__ = ["OUTPUT_COLUMNS", "T_ICE_METHODS", "coare35vn_ice"]
 
-ICE_T_DEFAULT = thermo.T_FREEZE_SW  # deg C, ice base temperature
+ICE_T_DEFAULT = T_FREEZE_SW  # deg C, ice base temperature
 T_ICE_METHODS = ("air_freezing", "air_capped", "empirical", "prescribed", "seb_steady", "diffusion")
 ZRF_U, ZRF_TQ = 10.0, 2.0  # v2 reference heights: wind 10 m, temperature and humidity 2 m
 NITS = 10  # iterations of the ice surface-layer loop (as the v2 open-water loop)
@@ -230,16 +233,13 @@ def coare35vn_ice(
         return (out, {}) if return_diagnostics else out
 
     out_ice, diag = _ice_columns(
-        u=u, t=t, rh=rh, P=P, Rs=Rs, Rl=Rl, grav=thermo.gravity(lat),
-        zu=zu_a, zt=zt_a, zq=zq_a, q_air=ow_u.q_air, rhoa=ow_u.rhoa,
-        zo_w=ow_u.zo, u10n_w=ow_u.u_n_rf, tau_w=ow_u.tau, hsb_w=ow_u.hsb, hlb_w=ow_u.hlb,
-        A_ice=A_ice, z0_ice=z0_ice_val, ice_scheme=ice_scheme, scalar_ratio=scalar_ratio,
-        t_ice_method=t_ice_method, t_ice=t_ice, t_ice_fallback=t_ice_fallback,
-        h_ice=h_ice_v, h_snow=h_snow_v, k_snow=k_snow, albedo=alb_v, t_base=t_base,
-        t_ice_offset=t_ice_offset, time_s=time_s, diffusion_kwargs=diffusion_kwargs,
-        rh_reference=rh_reference, verbose=verbose,
-        options=V2_OPTIONS if _v2_compat else (surface_layer_options or DEFAULT_OPTIONS),
-        v2_compat=_v2_compat,
+        u=u, t=t, rh=rh, ts=ts, P=P, Rs=Rs, Rl=Rl, lat=lat, zi=zi, zu=zu_a, zt=zt_a, zq=zq_a,
+        ow=ow_u, A_ice=A_ice, z0_ice=z0_ice_val, ice_scheme=ice_scheme,
+        scalar_ratio=scalar_ratio, t_ice_method=t_ice_method, t_ice=t_ice,
+        t_ice_fallback=t_ice_fallback, h_ice=h_ice_v, h_snow=h_snow_v, k_snow=k_snow,
+        albedo=alb_v, t_base=t_base, t_ice_offset=t_ice_offset, time_s=time_s,
+        diffusion_kwargs=diffusion_kwargs, rh_reference=rh_reference, verbose=verbose,
+        options=surface_layer_options, v2_compat=_v2_compat, jcool=jcool,
     )  # fmt: skip
     out = np.column_stack(out_ow + out_ice)
     return (out, diag) if return_diagnostics else out
@@ -263,184 +263,78 @@ def _open_water_columns(ow_u, ow_tq, rain_given):
     ]  # fmt: skip
 
 
-def _ice_columns(
-    *,
-    u,
-    t,
-    rh,
-    P,
-    Rs,
-    Rl,
-    grav,
-    zu,
-    zt,
-    zq,
-    q_air,
-    rhoa,
-    zo_w,
-    u10n_w,
-    tau_w,
-    hsb_w,
-    hlb_w,
-    A_ice,
-    z0_ice,
-    ice_scheme,
-    scalar_ratio,
-    t_ice_method,
-    t_ice,
-    t_ice_fallback,
-    h_ice,
-    h_snow,
-    k_snow,
-    albedo,
-    t_base,
-    t_ice_offset,
-    time_s,
-    diffusion_kwargs,
-    rh_reference,
-    verbose,
-    options=DEFAULT_OPTIONS,
-    v2_compat=False,
-):
-    """The 18 v2 ice columns (38-55), given the open-water quantities they depend on.
-
-    zo_w and u10n_w are the open-water roughness and 10 m neutral wind (form drag);
-    tau_w, hsb_w, hlb_w the open-water fluxes (blending). All arrays have length N.
-    Returns (columns, diagnostics).
-    """
-    N = u.size
-    # Air humidity over the ice fraction (kg/kg)
-    if rh_reference == "water":
-        Q_ice_air = q_air
-    else:  # v1 behaviour: RH taken as relative to ice
-        es_i = thermo.esat_ice(np.minimum(t, 0.0), P)
-        em_i = rh / 100.0 * es_i
-        Q_ice_air = 0.622 * em_i / (P - 0.378 * em_i)
-
-    args = dict(
-        u=u, t=t, Q_air=Q_ice_air, z0_ice=z0_ice, P=P, grav=grav, zu=zu, zt=zt, zq=zq,
-        rhoa=rhoa, cpa=thermo.CPA, von=thermo.VON, fdg=thermo.FDG, ta=t + thermo.TDK,
-        ice_scheme=ice_scheme, scalar_ratio=scalar_ratio, nits=NITS, options=options,
-    )  # fmt: skip
-    G = effective_conductance(h_ice, h_snow, K_ICE_FRESH, k_snow)
-
-    def _simple(method):
-        if method == "air_freezing":
-            return simple.air_freezing(t, ICE_T_DEFAULT)
-        if method == "air_capped":
-            return simple.air_capped(t, 0.0)
-        if method == "empirical":
-            return simple.empirical(t, offset=t_ice_offset)
-        if method == "seb_steady":
-            return solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)[0]
-        raise ValueError(f"unsupported fallback {method!r}")
-
-    seb_res = np.full(N, np.nan)
-    F_cond_column = None
-    t_ice_filled = np.zeros(N, dtype=bool)
-    if t_ice_method == "prescribed":
-        T_ice = _per_sample(t_ice, N, "t_ice")
-        miss = ~np.isfinite(T_ice)
-        if miss.any() and t_ice_fallback is not None:
-            T_ice[miss] = _simple(t_ice_fallback)[miss]
-            t_ice_filled = miss & np.isfinite(T_ice)
-            if verbose:
-                print(
-                    f"  prescribed T_ice missing in {miss.sum()} of {N} steps -> {t_ice_fallback!r}"
-                )
-    elif t_ice_method == "seb_steady":
-        T_ice, seb_res = solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)
-    elif t_ice_method == "diffusion":
-        # Samples with a missing thickness or albedo get no T_ice (set after the run).
-        no_slab = ~(np.isfinite(h_ice) & np.isfinite(h_snow) & np.isfinite(albedo))
-        if not v2_compat:
-            varying = [
-                name
-                for name, x in (("h_ice", h_ice), ("h_snow", h_snow), ("albedo", albedo))
-                if np.nanmax(x) - np.nanmin(x) > 1e-9
-            ]
-            if varying:
-                warnings.warn(
-                    f"t_ice_method='diffusion' models one slab: {', '.join(varying)} "
-                    "vary along the series and are replaced by their medians",
-                    stacklevel=3,
-                )
-            h_ice = np.full(N, np.nanmedian(h_ice))
-            h_snow = np.full(N, np.nanmedian(h_snow))
-            albedo = np.full(N, np.nanmedian(albedo))
-            G = effective_conductance(h_ice, h_snow, K_ICE_FRESH, k_snow)
-        T_ss, _ = solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)
-        fl_ss = ice_surface_layer(t_ice=T_ss, **args)  # conductances at steady state
+def _method(name, *, t_ice=None, fallback=None, offset=2.0, diffusion_kwargs=None, n=None):
+    """The surface temperature method object for a v2 method name."""
+    if name == "air_freezing":
+        return AirFreezing(ICE_T_DEFAULT)
+    if name == "air_capped":
+        return AirCapped(0.0)
+    if name == "empirical":
+        return Empirical(offset=offset)
+    if name == "seb_steady":
+        return SEB()
+    if name == "prescribed":
+        fb = None if fallback is None else _method(fallback, offset=offset)
+        return Prescribed(_per_sample(t_ice, n, "t_ice"), fallback=fb)
+    if name == "diffusion":
         dk = dict(diffusion_kwargs or {})
         run_kw = {k: dk.pop(k) for k in ("sic_reset", "max_gap_s") if k in dk}
-        # One column is one slab of fixed thickness. Thickness arrays are reduced to their
-        # medians (see the docstring); v2 did that for the column but not for T_ss above.
-        col = IceColumn(
-            h_ice=float(np.nanmedian(h_ice)),
-            h_snow=float(np.nanmedian(h_snow)),
-            t_base=t_base,
-            k_snow=k_snow,
-            v2_compat=v2_compat,
-            **dk,
-        )
-        theta_a = t + thermo.LAPSE_DRY * zt
-        res = col.run(
-            np.asarray(time_s, dtype=float), theta_a, Q_ice_air, P, Rl, Rs,
-            fl_ss["h_s"], fl_ss["h_l"], T_ss, sic=A_ice,
-            albedo=float(np.nanmedian(albedo)), **run_kw,
+        return Column(column_kwargs=dk, **run_kw)
+    raise ValueError(f"unsupported fallback {name!r}")
+
+
+def open_water_stub(*, rhoa, q_air, zo, u_n_rf, tau, hsb, hlb):
+    """Stand-in for the pycoare result, holding only what the ice code and the blend use.
+
+    For tests that feed stored open-water values in; everything else is NaN.
+    """
+    nan = np.full(np.shape(tau), np.nan)
+    return SimpleNamespace(
+        rhoa=rhoa, q_air=q_air, zo=zo, u_n_rf=u_n_rf, tau=tau, hsb=hsb, hlb=hlb, usr=nan,
+        zot=nan, zoq=nan, cdn_rf=nan, chn_rf=nan, cen_rf=nan, obukhov_length=nan, zet=nan,
+        ut=nan, q_sea=nan, dter=0.0, dqer=0.0, jcool=0,
+    )  # fmt: skip
+
+
+def _ice_columns(
+    *, u, t, rh, ts, P, Rs, Rl, lat, zi, zu, zt, zq, ow, A_ice, z0_ice, ice_scheme,
+    scalar_ratio, t_ice_method, t_ice, t_ice_fallback, h_ice, h_snow, k_snow, albedo, t_base,
+    t_ice_offset, time_s, diffusion_kwargs, rh_reference, verbose, options=None,
+    v2_compat=False, jcool=1,
+):  # fmt: skip
+    """The 18 v2 ice columns (38-55) and the diagnostics, from :func:`ice_fluxes`.
+
+    ``ow`` is the open-water result at a 10 m reference height (or an
+    :func:`open_water_stub`). Returns (columns, diagnostics).
+    """
+    N = u.size
+    method = _method(t_ice_method, t_ice=t_ice, fallback=t_ice_fallback, offset=t_ice_offset,
+                     diffusion_kwargs=diffusion_kwargs, n=N)  # fmt: skip
+    if t_ice_method == "prescribed" and verbose and t_ice_fallback is not None:
+        miss = int((~np.isfinite(method.values)).sum())
+        if miss:
+            print(f"  prescribed T_ice missing in {miss} of {N} steps -> {t_ice_fallback!r}")
+    tiles = two_tile(
+        z0=z0_ice, scalar_scheme="a87" if ice_scheme == "blended_a87" else "ratio",
+        scalar_ratio=scalar_ratio, h_ice=h_ice, h_snow=h_snow, k_snow=k_snow, albedo=albedo,
+        t_base=t_base,
+    )  # fmt: skip
+    try:
+        res = ice_fluxes(
+            u, t, rh, P, ts, A_ice, zu=zu, zt=zt, zq=zq, lat=lat, lw_down=Rl, sw_down=Rs,
+            tiles=tiles, t_ice=method, options=options, zi=zi, jcool=jcool, time=time_s,
+            rh_reference=rh_reference, _open_water=ow, _v2_compat=v2_compat,
         )  # fmt: skip
-        # The column is not run out of ice (SIC below sic_reset) or across missing
-        # forcing. There the steady-state T_ice is used and flagged (t_ice_filled); it is
-        # NaN itself wherever an input it needs is missing.
-        T_ice = np.where(np.isfinite(res["Ts"]), res["Ts"], T_ss)
-        t_ice_filled = ~np.isfinite(res["Ts"]) & np.isfinite(T_ss)
-        if not v2_compat:  # the medians must not stand in for a missing value
-            T_ice = np.where(no_slab, np.nan, T_ice)
-            t_ice_filled &= ~no_slab
-        seb_res = res["melt"]
-        if v2_compat:
-            # v2 back-calculated F_cond through an effective conductance, which is wrong
-            # (and can be enormous) when the surface is warmer than the base.
-            G = np.where(
-                np.isfinite(res["F_cond"]),
-                res["F_cond"] / np.maximum(t_base - np.minimum(T_ice, 0.0), 1e-6),
-                G,
-            )
-        else:
-            F_cond_column = res["F_cond"]  # the column model's own conductive flux
-    else:
-        T_ice = _simple(t_ice_method)
-
-    fl = ice_surface_layer(t_ice=T_ice, **args)
-    lw_net, sw_net, F_cond = seb_terms(T_ice, Rl, Rs, albedo, G, t_base)
-    if F_cond_column is not None:
-        F_cond = np.where(np.isfinite(F_cond_column), F_cond_column, F_cond)
-    if t_ice_method not in ("seb_steady", "diffusion"):
-        seb_res = F_cond + lw_net + sw_net - fl["hsb"] - fl["hlb"]  # implied imbalance
-
-    # Form drag over the MIZ (momentum only): neutral 10 m coefficient x U10N^2
-    CD10nf = lupkes_form_drag(A_ice, zo_w)
-    tau_form = rhoa * CD10nf * u10n_w**2
-
-    A_w = 1.0 - A_ice
-    tau_blend = A_w * tau_w + A_ice * fl["tau"] + tau_form
-    hsb_blend = A_w * hsb_w + A_ice * fl["hsb"]
-    hlb_blend = A_w * hlb_w + A_ice * fl["hlb"]
-
+    except ValueError as err:  # keep the v2 wording for a wrong-length input
+        raise ValueError(f"coare35vn_ice: {err}") from err
+    ice = res.ice
     diag = {
-        k: fl[k]
-        for k in ("zeta", "Rib", "zeta_limited", "qc_rib", "qc_rstar", "iter_dH", "iter_dLE",
-                  "not_converged")
+        "zeta": ice.zeta, "Rib": ice.rib, "zeta_limited": ice.qc["zeta_limited"],
+        "qc_rib": ice.qc["rib_above_critical"], "qc_rstar": ice.qc["rstar_out_of_range"],
+        "iter_dH": ice.extra["iter_dH"], "iter_dLE": ice.extra["iter_dLE"],
+        "not_converged": ice.qc["not_converged"], "t_ice_filled": ice.qc["t_surface_filled"],
+        "missing_input": ice.qc["missing_input"],
     }  # fmt: skip
-    diag["t_ice_filled"] = t_ice_filled
-    used = [u, t, rh, P, grav, A_ice, T_ice]
-    if t_ice_method in ("seb_steady", "diffusion"):
-        used += [Rl, Rs, h_ice, h_snow, albedo]  # T_ice is NaN where a slab value was
-    diag["missing_input"] = ~np.all([np.isfinite(x) for x in used], axis=0)
-    cols = [
-        fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],
-        fl["R_star"], fl["z0T"], fl["z0q"],
-        tau_blend, hsb_blend, hlb_blend,
-        T_ice, F_cond, lw_net, sw_net, seb_res, tau_form,
-    ]  # fmt: skip
+    src = {"ice": ice, "blended": res.blended}
+    cols = [getattr(src[s_], f) * scale for _, s_, f, scale in _LEGACY_ICE]
     return cols, diag

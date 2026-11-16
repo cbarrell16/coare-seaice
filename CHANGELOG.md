@@ -35,6 +35,12 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   correction, and the open-water tile is run at the aggregate temperature without the
   cool-skin correction. Turbulent fluxes without the cool-skin correction no longer
   need radiation inputs (for aircraft runs).
+- **T5.** `coare_seaice.ice_fluxes(...)`, the public function. With its defaults it is
+  the simple reference (two tiles, ice at min(T_air, -1.8 C), z0_ice = 5e-4 m, COARE
+  stability functions) and equals `legacy.coare35vn_ice(t_ice_method="air_freezing")`.
+  Radiation inputs have no default value: whatever needs them is NaN if they are
+  missing. `legacy.coare35vn_ice` is now a thin wrapper around `ice_fluxes`; all ten
+  fixture runs are identical to before, and the tests against v2 still pass.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
