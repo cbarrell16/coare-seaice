@@ -46,6 +46,8 @@ def test_flags_on_both_sides_of_the_limit():
 def test_unstable_side_is_not_flagged_by_rib():
     fl = _solve(u=[5.0], t=[-25.0], t_ice=-5.0)
     assert fl["Rib"][0] < 0 and not fl["qc_rib"][0] and not fl["zeta_limited"][0]
+    calm = _solve(u=[0.5], t=[-25.0], t_ice=-5.0)  # the unstable limit acts and is flagged
+    assert calm["zeta_limited"][0] and np.isclose(calm["zeta"][0], -10.0)
 
 
 def test_limit_is_a_parameter_and_default_is_v2():

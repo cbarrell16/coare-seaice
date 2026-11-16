@@ -25,6 +25,25 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   aircraft runs) and any real number type (`np.float32` was rejected before).
   Per-sample heights give the same result as a loop over scalars (tested). Heights must
   be positive. **No change in results.**
+- **F10.** Optional light-wind terms over ice after Andreas et al. (2010, Q. J. R.
+  Meteorol. Soc. 136, 927-943), both **off by default**: gustiness in unstable
+  conditions (their Eqs. 2.4 and 2.5, beta_g = 1.25, z_i = 600 m) and a "windless" term
+  in stable conditions (their Eq. 2.6, S = U + 0.5 sech U). Set with
+  `SurfaceLayerOptions(gustiness=True, windless=True)`, or the preset
+  `most.ANDREAS2010_LIGHT_WIND`, which also sets the new option `zeta_min=-1000`. The
+  unstable stability limit is now separate from the stable one (`zeta_min`, default -10
+  as v2). With the default the gust term is throttled in near-calm unstable air
+  (flagged by `zeta_limited`): at 10 m with a 20 K unstable difference and U = 0.3 m
+  s-1 the ice sensible heat flux is 50 W m-2 with the limit and 178 W m-2 without. Off
+  reproduces the previous
+  results exactly (all ten fixture runs identical). With the preset on, on the
+  reference fixture (36/22/22 m): `air_freezing` ice sensible heat changes by at most
+  0.28 W m-2 and latent heat by at most 1.4 W m-2; `seb_steady` ice sensible heat by
+  up to 13 W m-2 and T_ice by up to 3.4 K in a few near-calm cases (mean changes +1.1
+  W m-2 and -0.26 K over the 31 cases below 3 m s-1). At 3 m s-1 and above the changes
+  are at most 0.4 W m-2 and 0.1 K. The solver's `not_converged` flag bounds the change
+  in the last iteration, not the remaining error (up to 0.3 W m-2 in near-calm tests).
+  New outputs of the solver: `usr` and the effective wind `S`.
 - **F6.** Convergence diagnostics for the ice surface-layer iteration: `iter_dH` and
   `iter_dLE` (change in the ice heat fluxes in the last of the 10 iterations, W m-2)
   and the flag `not_converged` (either above `SurfaceLayerOptions.conv_tol`, default
