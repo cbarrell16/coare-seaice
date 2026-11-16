@@ -60,6 +60,10 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   instead of COARE (no cool skin, no gustiness), for anchoring open-water coefficients
   to observations as Elvidge et al. (2021) do; given COARE's own roughness lengths it
   agrees with COARE within 2 % at winds of 9 m s-1 and above. Default unchanged.
+- **T8.** `ice_fluxes(..., coare="3.6")` selects COARE 3.6 for open water, and the wave
+  inputs `cp` and `sigH` (and `salinity` for 3.6) are passed to pycoare. Without wave
+  inputs the two versions agree within pycoare's own differences (at most 0.8 W m-2
+  and 1.2e-4 N m-2 in 200 random polar cases). Ice tiles do not depend on the version.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
