@@ -66,3 +66,15 @@ def test_legacy_returns_diagnostics(inputs):
     np.testing.assert_array_equal(A, B)
     assert set(diag) >= {"zeta", "Rib", "zeta_limited", "qc_rib"}
     assert diag["qc_rib"].dtype == bool and diag["qc_rib"].shape == (A.shape[0],)
+
+
+def test_viscosity_option_f2():
+    # Colder air is less viscous, so R* is larger and z0T smaller than with 1.5e-5.
+    from coare_seaice.most import V2_OPTIONS
+
+    new = _solve(u=[8.0], t=[-20.0], t_ice=-15.0)
+    old = _solve(u=[8.0], t=[-20.0], t_ice=-15.0, options=V2_OPTIONS)
+    nu = thermo.air_viscosity(-20.0)
+    assert np.isclose(new["R_star"][0] / old["R_star"][0], 1.5e-5 / nu, rtol=2e-2)
+    assert new["z0T"][0] < old["z0T"][0]
+    assert 0.0 < abs(new["hsb"][0] / old["hsb"][0] - 1.0) < 0.05

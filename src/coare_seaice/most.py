@@ -11,9 +11,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .roughness import NU_AIR, a87_scalar_roughness
+from .roughness import NU_AIR_V2, a87_scalar_roughness
 from .stability import psit_26, psiu_26
-from .thermo import LAPSE_DRY, LS_ICE, qsat_ice
+from .thermo import LAPSE_DRY, LS_ICE, TDK, air_viscosity, qsat_ice
 
 ZETA_MAX_DEFAULT = 10.0  # limit on |zeta| = |zu / L| in the iteration (the v2 value)
 RIB_CRITICAL = 0.2  # Grachev et al. (2007): critical bulk Richardson number, Ri_B,cr ~ 0.2
@@ -32,13 +32,24 @@ class SurfaceLayerOptions:
         (``qc_rib``). Grachev et al. (2007) find Ri_B,cr ~ 0.2 at SHEBA and state that
         their profile functions are valid for Ri_B < Ri_B,cr (text after their Eq. 8 and
         Eq. 13); zeta ~ 10 corresponds on average to Ri_B ~ 0.2 there (their Fig. 3).
+    viscosity : "coare" (default) uses the temperature-dependent kinematic viscosity of
+        air (:func:`coare_seaice.thermo.air_viscosity`, at the air temperature) in the
+        roughness Reynolds number R* = z0 u* / nu; "constant" uses the v2 value 1.5e-5.
     """
 
     zeta_max: float = ZETA_MAX_DEFAULT
     rib_critical: float = RIB_CRITICAL
+    viscosity: str = "coare"
+
+    def __post_init__(self):
+        if self.viscosity not in ("coare", "constant"):
+            raise ValueError("viscosity must be 'coare' or 'constant'")
 
 
 DEFAULT_OPTIONS = SurfaceLayerOptions()
+# The v2 behaviour, kept so that the port can still be tested against the stored v2
+# outputs: every audit fix that changes results is switched off here.
+V2_OPTIONS = SurfaceLayerOptions(viscosity="constant")
 
 
 def bulk_richardson(theta_air, t_sfc, q_air, q_sfc, u, z, ta, grav):
@@ -109,11 +120,12 @@ def ice_surface_layer(
     qsr_i = np.zeros(N)
     L_i = np.full(N, 1e6)
 
+    nu = air_viscosity(ta - TDK) if options.viscosity == "coare" else NU_AIR_V2
+
     def scalar_rough(usr):
         if ice_scheme == "blended_a87":
-            return a87_scalar_roughness(z0_ice, usr)
-        # AUDIT F2: constant air viscosity in R* (to be changed in task F2).
-        return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / NU_AIR
+            return a87_scalar_roughness(z0_ice, usr, nu)
+        return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / nu
 
     # AUDIT F6: fixed number of iterations with no convergence diagnostic (task F6).
     for _ in range(nits):

@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from coare_seaice.most import V2_OPTIONS
 from coare_seaice.radiation import lw_down_konig_langlo
 from coare_seaice.surface_temperature import (
     air_capped,
@@ -64,7 +65,7 @@ def test_seb_terms(seb, inputs):
 def test_solve_seb_steady(seb, inputs):
     args = {k: seb[f"in_{k}"] for k in ARRAY_ARGS}
     args.update(z0_ice=5e-4, cpa=1004.67, von=0.4, fdg=1.0, ice_scheme="blended_a87",
-                scalar_ratio=0.2, nits=10)  # fmt: skip
+                scalar_ratio=0.2, nits=10, options=V2_OPTIONS)  # fmt: skip
     Ts, res = solve_seb_steady(args, inputs["Rl"], inputs["Rs"], seb["albedo"], seb["G"],
                                -1.8, inputs["t"])  # fmt: skip
     assert_port(Ts, seb["Ts"])

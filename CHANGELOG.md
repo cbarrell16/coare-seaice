@@ -22,6 +22,19 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   (`zeta_limited`) and 5.3 % (`qc_rib`) of cases with `air_freezing`, and 14.0 % and
   12.3 % with `seb_steady`.
 
+### Changed (results change)
+- **F2.** The roughness Reynolds number R* = z0 u* / nu in the Andreas (1987) scalar
+  roughness now uses the temperature-dependent air viscosity of COARE
+  (`thermo.air_viscosity`, 1.24e-5 m2 s-1 at -10 C) in place of the constant 1.5e-5.
+  Colder air gives a larger R* and a smaller z0T and z0q, so the magnitudes of the ice
+  heat fluxes fall. Reference fixture, `air_freezing`: ice sensible and latent heat
+  change by -2.4 % and -2.2 % (medians where the flux exceeds 5 W m-2; range -0.1 to
+  -4 %); the largest changes are 1.8 W m-2 in the ice fluxes and 1.2 to 1.5 W m-2 in
+  the blended fluxes; ice stress changes by at most 0.001 N m-2 (through stability).
+  `seb_steady`: ice surface temperature changes by at most 0.27 K. This is larger than
+  the 1-2 % expected in the audit. The `simple` scheme (fixed ratio) is unchanged
+  except for the reported R*. `most.V2_OPTIONS` restores the old value.
+
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 
 ### Added

@@ -121,6 +121,19 @@ def air_density(t, p, q):
     return p * 100.0 / (RGAS * (t + TDK) * (1 + 0.61 * q))
 
 
+def air_viscosity(t):
+    """Kinematic viscosity of air (m2 s-1) at temperature t (deg C), as COARE computes it.
+
+        nu = 1.326e-5 (1 + 6.542e-3 t + 8.301e-6 t^2 - 4.84e-9 t^3)
+
+    The same polynomial as in pycoare's COARE 3.5 and 3.6 (tested against it). COARE
+    takes it from Andreas (1989, CRREL Report 89-11); that citation is from memory and
+    unverified. Values: 1.326e-5 at 0 C, 1.240e-5 at -10 C, 1.156e-5 at -20 C.
+    """
+    t = np.asarray(t, dtype=float)
+    return 1.326e-5 * (1 + 6.542e-3 * t + 8.301e-6 * t**2 - 4.84e-9 * t**3)
+
+
 def latent_heat_vaporisation(ts):
     """Latent heat of vaporisation (J kg-1) at water temperature ts (deg C), as COARE 3.5.
 

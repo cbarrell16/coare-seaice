@@ -1,5 +1,10 @@
 """legacy.coare35vn_ice against stored v2 outputs (tests/fixtures/v2_reference).
 
+The comparison runs with ``most.V2_OPTIONS``, which switches off the audit fixes that
+change results (release 0.3.0), so it still proves that the port equals v2 and that
+those fixes are the only differences. The default behaviour is covered by the unit tests
+of each fix.
+
 Open-water columns 0-37 come from pycoare, which differs slightly from the NOAA COARE 3.5
 loop in v2 (WGS84 gravity; exact 1/3 and 2/3 in the gustiness and stability functions
 where the NOAA code has 0.333 / 0.3333 / 0.6667 and the constants 14.28, 8.525). So they
@@ -27,6 +32,7 @@ import pytest
 
 from coare_seaice import thermo
 from coare_seaice.legacy import OUTPUT_COLUMNS, _ice_columns, coare35vn_ice
+from coare_seaice.most import V2_OPTIONS
 from conftest import REF_DIR, assert_port, load_ref, resolve_kwargs
 
 RTOL_OW = 2e-3
@@ -59,7 +65,9 @@ def _v2_array(name):
 
 def _run(inputs, kwargs_json):
     kw = resolve_kwargs(kwargs_json, inputs)
-    return coare35vn_ice(inputs["u"], inputs["t"], inputs["rh"], inputs["ts"], **kw)
+    return coare35vn_ice(
+        inputs["u"], inputs["t"], inputs["rh"], inputs["ts"], surface_layer_options=V2_OPTIONS, **kw
+    )
 
 
 @pytest.mark.parametrize("name", RUNS)
@@ -114,6 +122,7 @@ def test_ice_columns_exact_given_v2_open_water(inputs, name):
         albedo=np.where(h_snow > 0.02, 0.85, 0.65), t_base=-1.8,
         t_ice_offset=kw.get("t_ice_offset", 2.0), time_s=kw.get("time_s"),
         diffusion_kwargs=None, rh_reference=kw.get("rh_reference", "water"), verbose=False,
+        options=V2_OPTIONS,
     )  # fmt: skip
     for j, col in enumerate(cols):
         name_j = OUTPUT_COLUMNS[38 + j]
