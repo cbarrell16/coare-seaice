@@ -39,6 +39,8 @@ class SurfaceLayerOptions:
         extrapolated beyond R* = 1000 (see
         :func:`coare_seaice.roughness.a87_scalar_roughness`); the output ``qc_rstar`` is
         True where R* > 1000.
+    neutral_if_nan : v2 treated a NaN stability parameter (a missing input) as neutral, so
+        some outputs stayed finite. Default False: NaN in gives NaN out.
     conv_tol : the output ``not_converged`` is True where the sensible or latent heat flux
         still changed by more than this (W m-2) in the last iteration. Diagnostic only.
     """
@@ -48,6 +50,7 @@ class SurfaceLayerOptions:
     viscosity: str = "coare"
     a87_guard: bool = True
     conv_tol: float = 0.1
+    neutral_if_nan: bool = False
 
     def __post_init__(self):
         if self.viscosity not in ("coare", "constant"):
@@ -57,7 +60,7 @@ class SurfaceLayerOptions:
 DEFAULT_OPTIONS = SurfaceLayerOptions()
 # The v2 behaviour, kept so that the port can still be tested against the stored v2
 # outputs: every audit fix that changes results is switched off here.
-V2_OPTIONS = SurfaceLayerOptions(viscosity="constant", a87_guard=False)
+V2_OPTIONS = SurfaceLayerOptions(viscosity="constant", a87_guard=False, neutral_if_nan=True)
 
 
 def bulk_richardson(theta_air, t_sfc, q_air, q_sfc, u, z, ta, grav):
@@ -150,6 +153,9 @@ def ice_surface_layer(
         zet_i = np.clip(zet_raw, -options.zeta_max, options.zeta_max)
         safe = np.abs(zet_i) > 1e-6
         L_i = np.where(safe, zu / np.where(safe, zet_i, 1.0), 1e6)
+        if not options.neutral_if_nan:
+            # A missing input must not fall back to neutral stability: NaN in, NaN out.
+            L_i = np.where(np.isnan(zet_i), np.nan, L_i)
         psi_m = psiu_26(zu / L_i)
         psi_t = psit_26(zt / L_i)
         psi_q = psit_26(zq / L_i)

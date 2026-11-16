@@ -25,8 +25,10 @@ def effective_conductance(h_ice, h_snow, k_ice=K_ICE_FRESH, k_snow=K_SNOW):
 
 
 def surface_albedo(h_snow):
-    """Winter albedo: 0.85 (snow) if h_snow > 2 cm, else 0.65 (bare ice)."""
-    return np.where(np.asarray(h_snow) > 0.02, ALBEDO_SNOW, ALBEDO_ICE)
+    """Winter albedo: 0.85 (snow) if h_snow > 2 cm, else 0.65 (bare ice); NaN if h_snow is."""
+    h_snow = np.asarray(h_snow, dtype=float)
+    albedo = np.where(h_snow > 0.02, ALBEDO_SNOW, ALBEDO_ICE)
+    return np.where(np.isnan(h_snow), np.nan, albedo)
 
 
 def seb_terms(t_ice, Rl, Rs, albedo, G, t_base):

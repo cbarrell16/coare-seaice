@@ -68,6 +68,17 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   Reference fixture, `diffusion` run (constant thickness): T_ice changes by at most
   0.04 K (mean -0.008 K), ice sensible heat by at most 0.35 W m-2 (mean -0.10),
   `F_cond` by at most 0.51 W m-2 (mean -0.21). Other methods are unchanged.
+- **F7.** No silent fills; NaN in gives NaN out for every output that depends on the
+  input (tested for every input). Three fills were found and removed or flagged.
+  (1) A NaN stability parameter (missing humidity, pressure, latitude or surface
+  temperature) was treated as neutral, so ice stress, R* and the scalar roughness
+  stayed finite; they are now NaN. (2) A missing snow depth gave the bare-ice albedo
+  0.65; it now gives NaN. (3) In `diffusion`, samples where the column is not running
+  (SIC below `sic_reset`) take the steady-state T_ice as before, but are now flagged.
+  New diagnostics `t_ice_filled` (T_ice does not come from the requested method,
+  including the `t_ice_fallback` of `prescribed`) and `missing_input`. The default of
+  `t_ice_fallback` is unchanged (`seb_steady`); pass `None` for no fill.
+  **No change on the reference fixture** (all ten runs identical).
 
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 

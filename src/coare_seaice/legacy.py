@@ -142,7 +142,16 @@ def coare35vn_ice(
                         dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``,
                         ``iter_dH``, ``iter_dLE`` and the flags ``zeta_limited``,
                         ``qc_rib``, ``qc_rstar`` and ``not_converged`` (see
-                        :func:`coare_seaice.most.ice_surface_layer`). Empty without ice.
+                        :func:`coare_seaice.most.ice_surface_layer`); ``t_ice_filled``
+                        (T_ice does not come from the requested method: a prescribed
+                        value was missing and ``t_ice_fallback`` was used, or the
+                        'diffusion' column was not running and the steady value was
+                        used); ``missing_input`` (an input needed for the ice fluxes is
+                        NaN, so they are NaN). Empty without ice.
+
+    Missing data: NaN in gives NaN out for every output that depends on the input, and
+    nothing is filled silently. ``t_ice_fallback`` is the one explicit fill; pass
+    ``t_ice_fallback=None`` to leave missing prescribed temperatures as NaN.
 
     ``_v2_compat=True`` switches off every audit fix of release 0.3.0 that changes
     results. It exists only so that the tests can still compare the port with the stored
@@ -323,11 +332,13 @@ def _ice_columns(
 
     seb_res = np.full(N, np.nan)
     F_cond_column = None
+    t_ice_filled = np.zeros(N, dtype=bool)
     if t_ice_method == "prescribed":
         T_ice = _per_sample(t_ice, N, "t_ice")
         miss = ~np.isfinite(T_ice)
         if miss.any() and t_ice_fallback is not None:
             T_ice[miss] = _simple(t_ice_fallback)[miss]
+            t_ice_filled = miss & np.isfinite(T_ice)
             if verbose:
                 print(
                     f"  prescribed T_ice missing in {miss.sum()} of {N} steps -> {t_ice_fallback!r}"
@@ -371,9 +382,11 @@ def _ice_columns(
             fl_ss["h_s"], fl_ss["h_l"], T_ss, sic=A_ice,
             albedo=float(np.nanmedian(albedo)), **run_kw,
         )  # fmt: skip
-        # AUDIT F7: where the column gives no value, the steady-state T_ice is used
-        # silently (to be changed in task F7).
+        # The column is not run out of ice (SIC below sic_reset) or across missing
+        # forcing. There the steady-state T_ice is used and flagged (t_ice_filled); it is
+        # NaN itself wherever an input it needs is missing.
         T_ice = np.where(np.isfinite(res["Ts"]), res["Ts"], T_ss)
+        t_ice_filled = ~np.isfinite(res["Ts"]) & np.isfinite(T_ss)
         seb_res = res["melt"]
         if v2_compat:
             # v2 back-calculated F_cond through an effective conductance, which is wrong
@@ -409,6 +422,11 @@ def _ice_columns(
         for k in ("zeta", "Rib", "zeta_limited", "qc_rib", "qc_rstar", "iter_dH", "iter_dLE",
                   "not_converged")
     }  # fmt: skip
+    diag["t_ice_filled"] = t_ice_filled
+    used = [u, t, rh, P, grav, A_ice, T_ice]
+    if t_ice_method in ("seb_steady", "diffusion"):
+        used += [Rl, Rs, h_ice, h_snow, albedo]
+    diag["missing_input"] = ~np.all([np.isfinite(x) for x in used], axis=0)
     cols = [
         fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],
         fl["R_star"], fl["z0T"], fl["z0q"],
