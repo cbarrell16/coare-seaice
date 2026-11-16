@@ -87,3 +87,76 @@ def psit_26(zeta):
     psi_c = _free_convective((1 - 34.15 * zu) ** 0.3333)
     psi[unstable] = _blend(zu, psi_k, psi_c)
     return psi.reshape(zeta.shape)
+
+
+# ---- SHEBA functions for stable conditions (Grachev et al. 2007) -----------------------
+_AM, _BM = 5.0, 5.0 / 6.5  # a_m, b_m = a_m / 6.5
+_AH, _BH, _CH = 5.0, 5.0, 3.0  # a_h, b_h, c_h
+
+
+def phim_sheba(zeta):
+    """Non-dimensional wind gradient, stable side (Grachev et al. 2007, Eq. 9a).
+
+    phi_m = 1 + a_m zeta (1 + zeta)^(1/3) / (1 + b_m zeta), a_m = 5, b_m = a_m / 6.5.
+    """
+    zeta = np.asarray(zeta, dtype=float)
+    return 1.0 + _AM * zeta * np.cbrt(1.0 + zeta) / (1.0 + _BM * zeta)
+
+
+def phih_sheba(zeta):
+    """Non-dimensional temperature gradient, stable side (Grachev et al. 2007, Eq. 9b).
+
+    phi_h = 1 + (a_h zeta + b_h zeta^2) / (1 + c_h zeta + zeta^2), a_h = b_h = 5, c_h = 3.
+    """
+    zeta = np.asarray(zeta, dtype=float)
+    return 1.0 + (_AH * zeta + _BH * zeta**2) / (1.0 + _CH * zeta + zeta**2)
+
+
+def _psim_sheba_stable(zeta):
+    """Grachev et al. (2007) Eq. 12, for zeta >= 0."""
+    x = np.cbrt(1.0 + zeta)
+    B = np.cbrt((1.0 - _BM) / _BM)
+    s3 = np.sqrt(3.0)
+    return -3.0 * _AM / _BM * (x - 1.0) + _AM * B / (2.0 * _BM) * (
+        2.0 * np.log((x + B) / (1.0 + B))
+        - np.log((x**2 - x * B + B**2) / (1.0 - B + B**2))
+        + 2.0 * s3 * (np.arctan((2.0 * x - B) / (s3 * B)) - np.arctan((2.0 - B) / (s3 * B)))
+    )
+
+
+def _psih_sheba_stable(zeta):
+    """Grachev et al. (2007) Eq. 13, for zeta >= 0."""
+    B = np.sqrt(_CH**2 - 4.0)  # sqrt(5)
+    return -_BH / 2.0 * np.log(1.0 + _CH * zeta + zeta**2) + (-_AH / B + _BH * _CH / (2.0 * B)) * (
+        np.log((2.0 * zeta + _CH - B) / (2.0 * zeta + _CH + B)) - np.log((_CH - B) / (_CH + B))
+    )
+
+
+def _stable_or_coare(zeta, stable_fn, coare_fn):
+    zeta = np.asarray(zeta, dtype=float)
+    stable = zeta >= 0
+    with np.errstate(invalid="ignore"):
+        out = np.where(stable, stable_fn(np.where(stable, zeta, 0.0)), coare_fn(zeta))
+    return np.where(np.isnan(zeta), np.nan, out)
+
+
+def psim_sheba(zeta):
+    """psi_m: SHEBA form for zeta >= 0 (Grachev et al. 2007, Eq. 12), COARE for zeta < 0.
+
+    Grachev et al. give stable functions only. They are fitted to SHEBA data and stated
+    to be valid for a bulk Richardson number below about 0.2. Compared with COARE's
+    functions: psi_h is less negative at all zeta > 0 (-10 against -30 at zeta = 10), so
+    scalar transfer is stronger; psi_m is slightly less negative below zeta of about 2.7,
+    more negative from there to about 67 (-22 against -18 at zeta = 10), and less
+    negative beyond.
+    """
+    return _stable_or_coare(zeta, _psim_sheba_stable, psiu_26)
+
+
+def psih_sheba(zeta):
+    """psi_h: SHEBA form for zeta >= 0 (Grachev et al. 2007, Eq. 13), COARE for zeta < 0."""
+    return _stable_or_coare(zeta, _psih_sheba_stable, psit_26)
+
+
+# name -> (psi for momentum, psi for scalars)
+STABILITY_FUNCTIONS = {"coare": (psiu_26, psit_26), "sheba": (psim_sheba, psih_sheba)}

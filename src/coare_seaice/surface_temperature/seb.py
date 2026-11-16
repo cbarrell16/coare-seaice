@@ -51,7 +51,8 @@ def solve_seb_steady(flux_kwargs, Rl, Rs, albedo, G, t_base, t_air, n_bisect=40)
 
     H and LE come from the full ice surface-layer solver,
     :func:`coare_seaice.most.ice_surface_layer`, called with ``flux_kwargs`` (all its
-    arguments except ``t_ice``). The search interval is [min(t_air, -1.8) - 40, 0] C.
+    arguments except ``t_ice``); ``flux_kwargs`` may instead be a function of Ts that
+    returns a dict with ``hsb`` and ``hlb``. The search interval is [min(t_air, -1.8) - 40, 0] C.
     f decreases with Ts. If f(0) > 0 the surface is melting: Ts = 0 C and f(0) is
     returned as the melt flux.
 
@@ -60,9 +61,10 @@ def solve_seb_steady(flux_kwargs, Rl, Rs, albedo, G, t_base, t_air, n_bisect=40)
     N = t_air.size
     lo = np.minimum(t_air, T_FREEZE_SW) - 40.0
     hi = np.zeros(N)
+    flux = flux_kwargs if callable(flux_kwargs) else None
 
     def f(Ts):
-        fl = ice_surface_layer(t_ice=Ts, **flux_kwargs)
+        fl = flux(Ts) if flux else ice_surface_layer(t_ice=Ts, **flux_kwargs)
         lw, sw, fc = seb_terms(Ts, Rl, Rs, albedo, G, t_base)
         return fc + lw + sw - fl["hsb"] - fl["hlb"]
 

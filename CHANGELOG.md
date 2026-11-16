@@ -4,6 +4,91 @@ All changes that alter results are recorded here, with their size.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [semantic versioning](https://semver.org/).
 
+## [0.4.0] - unreleased (branch `release/0.4.0`)
+
+Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results of
+`legacy.coare35vn_ice` or of the default settings.
+
+### Added
+- **T1.** `results.FluxResult`: named results in place of a 56-column array. It holds
+  the blended (area-mean) fluxes, one `TileResult` per surface tile, and quality flags
+  with documented meanings. `to_xarray()` gives a labelled dataset with units;
+  `to_legacy_array()` / `from_legacy_array()` convert to and from the old array for
+  the two-tile case (round trip tested).
+- **T2.** Surface temperature methods as classes behind one interface
+  (`surface_temperature.methods`): `AirFreezing`, `AirCapped`, `Empirical`,
+  `Prescribed`, `SEB` and the experimental `Column`. A method is any object with a
+  `solve(ctx)` method, so a new one needs no change elsewhere (tested). They give the
+  same numbers as the existing functions.
+- **T3.** Tiles (`tiles.Tile`, `two_tile()`, `three_tile()`) and the engine that solves
+  each tile and blends the fluxes by area fraction, with the floe-edge form drag added
+  to the stress (`engine.compute`). Two tiles reproduce the legacy output to rounding;
+  three tiles with no thin ice equal two tiles (both tested). The thin-ice share can be
+  taken from the water fraction (default; no form drag) or from the ice fraction.
+  The thin-ice defaults (0.1 m of bare ice) are provisional until task T10. Blended
+  results carry quality flags that never change a value.
+- **T4.** Blend mode `single_temperature`: every tile is solved with one aggregate
+  surface temperature (given, for example from a radiometer, or the area mean of the
+  tile temperatures). In neutral conditions this is the coefficient blending of
+  Elvidge et al. (2021, Eq. 12), tested to 3 %; it equals flux mode when all tiles
+  share one temperature (tested to rounding). Each tile keeps its own stability
+  correction, and the open-water tile is run at the aggregate temperature without the
+  cool-skin correction. Turbulent fluxes without the cool-skin correction no longer
+  need radiation inputs (for aircraft runs).
+- **T5.** `coare_seaice.ice_fluxes(...)`, the public function. With its defaults it is
+  the simple reference (two tiles, ice at min(T_air, -1.8 C), z0_ice = 5e-4 m, COARE
+  stability functions) and equals `legacy.coare35vn_ice(t_ice_method="air_freezing")`.
+  Radiation inputs have no default value: whatever needs them is NaN if they are
+  missing. `legacy.coare35vn_ice` is now a thin wrapper around `ice_fluxes`; all ten
+  fixture runs are identical to before, and the tests against v2 still pass.
+- **T6.** SHEBA stability functions (Grachev et al. 2007, Eqs. 9, 12 and 13) as an
+  option for the ice tiles: `ice_fluxes(..., stability="sheba")`. Stable side only;
+  the unstable side and open water keep COARE's functions. The integrated forms are
+  tested against the gradient forms numerically. Default unchanged. With the option on,
+  on the reference fixture (36/22/22 m): `air_freezing` ice sensible heat changes by
+  -0.09 W m-2 on average over stable cases (at most 3.3 W m-2); with the energy-balance
+  method by -0.64 W m-2 on average (at most 7.8 W m-2), and T_ice by up to 2.2 K. The
+  stability limit acts slightly more often with them (17 against 9 of 300 cases).
+- **T7.** Roughness options. `z0_ice` (or a tile's `z0`) may be a number, one value per
+  sample, a name, or a function of the friction velocity. Names (`roughness.ICE_ROUGHNESS`)
+  are the MetUM "Smooth" and "Rough" settings of Renfrew et al. (2019, Table 1) and the
+  regional drag coefficients collected by Srivastava et al. (2022, Table 2, discussion
+  paper), each with its source and interquartile range. `"andreas2010_winter"` is the
+  winter sea-ice formula of Andreas et al. (2010, J. Hydrometeorol., Eq. 5.1), solved
+  inside the iteration. Scalar roughness lengths can be prescribed on a tile (`z0t`,
+  `z0q`). A water tile with all three roughness lengths given is solved with them
+  instead of COARE (no cool skin, no gustiness), for anchoring open-water coefficients
+  to observations as Elvidge et al. (2021) do; given COARE's own roughness lengths it
+  agrees with COARE within 2 % at winds of 9 m s-1 and above. Default unchanged.
+- **T8.** `ice_fluxes(..., coare="3.6")` selects COARE 3.6 for open water, and the wave
+  inputs `cp` and `sigH` (and `salinity` for 3.6) are passed to pycoare. Without wave
+  inputs the two versions agree within pycoare's own differences (at most 0.8 W m-2
+  and 1.2e-4 N m-2 in 200 random polar cases). Ice tiles do not depend on the version.
+- **T9.** Quality flag `humidity_far_from_ice_saturation`: relative humidity with
+  respect to ice outside 80 to 105 % where the ice concentration is at least 0.9
+  (after Andreas et al. 2002; the thresholds are this package's choice, since that paper
+  was not available to check). A flag only: no value is adjusted (tested).
+- **U1.** `uncertainty.ensemble`: reruns `ice_fluxes` with perturbed inputs or settings
+  (Gaussian errors as an offset per member or as noise per sample; uniform or
+  log-uniform draws for settings such as roughness) and returns percentiles of chosen
+  outputs. Reproducible with a seed; zero perturbation returns the central value
+  (both tested). It measures input uncertainty only, not errors of the method.
+
+### Physics review (applied in the last commit of the release)
+Reviewed against the papers; no equation, constant or table value was found wrong, and
+`legacy.coare35vn_ice` is bit-identical to 0.3.0 (400 random cases, NaN pattern
+included). Fixed: the anchored water tile no longer takes the ice tiles' stability
+functions or light-wind terms; a NaN blended flux is always flagged `missing_input`
+(for example the cool-skin correction without radiation); NaN thin fractions are
+rejected; the humidity flag respects `rh_reference="ice"` and is not set above 0 C;
+the ensemble reports how many members each percentile rests on and keeps wind speed
+non-negative. Docstrings corrected (single-temperature blending is not the full
+Elvidge et al. 2021 scheme: tiles keep their own surface humidity and latent heat;
+SHEBA/COARE crossing points; the Andreas et al. 2010 plateau) and caveats added (thin
+ice counted at MIZ floe freeboard in the form drag; Srivastava et al. drag values may
+include form drag). Not checked: the Andreas et al. (2002) paper behind the humidity
+flag, which is not in the project.
+
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
 Audit fixes F1-F10. "Reference fixture" below means the 300 synthetic polar cases in

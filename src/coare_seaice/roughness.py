@@ -6,11 +6,17 @@ Scalar (heat and moisture) roughness after the Andreas (1987) surface-renewal mo
 
 with coefficients from Andreas (1987) Table 1 for three regimes of the roughness
 Reynolds number R* (smooth, transitional, rough).
+
+Momentum roughness of ice is regional and rarely measured: it is an input with an
+uncertainty range, not a constant. :data:`ICE_ROUGHNESS` lists published values by name,
+and :func:`z0_andreas2010_winter` is a formula that depends on the friction velocity.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+VON = 0.4
 
 ICE_Z0_DEFAULT = 5.0e-4  # m, MetUM operational z0 over ice (C_DN10i ~ 1.6e-3, Lupkes 2012)
 SCALAR_RATIO = 0.2  # z0T/z0 = z0q/z0 for the 'simple' scheme (MetUM)
@@ -70,3 +76,74 @@ def a87_scalar_roughness(z0_i, u_star_i, nu=NU_AIR_V2, guard=True):
     bt[k] = A87_ZOT[2, 0] + A87_ZOT[2, 1] * lnr + A87_ZOT[2, 2] * lnr**2
     bq[k] = A87_ZOQ[2, 0] + A87_ZOQ[2, 1] * lnr + A87_ZOQ[2, 2] * lnr**2
     return z0_i * np.exp(bt), z0_i * np.exp(bq), R_star
+
+
+def z0_from_cdn10(cdn10):
+    """Roughness length (m) for a neutral 10 m drag coefficient: z0 = 10 exp(-k / sqrt(C))."""
+    return 10.0 * np.exp(-VON / np.sqrt(np.asarray(cdn10, dtype=float)))
+
+
+def cdn10_from_z0(z0):
+    """Neutral 10 m drag coefficient for a roughness length (m): C = (k / ln(10 / z0))^2."""
+    return (VON / np.log(10.0 / np.asarray(z0, dtype=float))) ** 2
+
+
+def z0_andreas2010_winter(u_star, nu):
+    """Roughness of winter sea ice from the friction velocity (Andreas et al. 2010, J.
+    Hydrometeorol. 11, 87-104, Eq. 5.1):
+
+        z0 = 0.135 nu / u* + 2.30e-4 tanh^3(13 u*)        (m, with mks units)
+
+    Fitted by eye to SHEBA winter data (their Fig. 2), so SHEBA is not independent
+    evidence for it. The first term is aerodynamically smooth flow; z0 levels off at
+    2.3e-4 m (C_DN10 = 1.4e-3) for u* above about 0.15 m s-1 (their p. 94); their data
+    reach u* of about 0.65 m s-1.
+    """
+    u_star = np.maximum(np.asarray(u_star, dtype=float), 1e-4)
+    return 0.135 * nu / u_star + 2.30e-4 * np.tanh(13.0 * u_star) ** 3
+
+
+# Published neutral 10 m drag coefficients over (nearly) complete ice cover, by name.
+# cdn10 is the median (or the stated setting); iqr the interquartile range where given.
+# Caveat: the Srivastava et al. values are total drag over "complete" cover, defined in
+# that table as an ice fraction of 0.8-1, 0.9-1 or 1 depending on the study, so they
+# include some form drag. Used as z0_ice with an ice fraction below 1, the Lupkes form
+# drag added on top may count part of it twice.
+_S22 = "Srivastava et al. (2022, ACP discussion paper acp-2021-705), Table 2"
+_R19 = "Renfrew et al. (2019), Table 1"
+ICE_ROUGHNESS = {
+    "metum_smooth": dict(z0=0.5e-3, source=f"{_R19}: 'Smooth' setting, z0_ice = 0.5e-3 m"),
+    "metum_rough": dict(z0=3.0e-3, source=f"{_R19}: 'Rough' setting, z0_ice = 3e-3 m"),
+    "eastern_arctic": dict(cdn10=2.1e-3, iqr=(1.3e-3, 2.8e-3), source=f"{_S22}: ACSE ship"),
+    "central_arctic": dict(cdn10=2.2e-3, iqr=(1.6e-3, 2.7e-3), source=f"{_S22}: AO2016 ship"),
+    "iceland_sea": dict(cdn10=3.4e-3, iqr=(2.5e-3, 4.2e-3),
+                        source=f"{_S22}: Elvidge et al. (2021), aircraft (IGP)"),
+    "barents_sea_broken_floes": dict(cdn10=2.6e-3, iqr=(2.4e-3, 3.9e-3),
+                                     source=f"{_S22}: Elvidge et al. (2016), aircraft"),
+    "fram_strait_large_flat_floes": dict(cdn10=0.9e-3, iqr=(0.4e-3, 2.1e-3),
+                                         source=f"{_S22}: Elvidge et al. (2016), aircraft"),
+}  # fmt: skip
+DYNAMIC_ROUGHNESS = {"andreas2010_winter": z0_andreas2010_winter}
+
+
+def resolve_ice_roughness(spec):
+    """Turn a roughness setting into what the solver takes.
+
+    A number or array (m) is returned as it is; a function ``f(u_star, nu)`` too; a name
+    from :data:`ICE_ROUGHNESS` gives its z0 (from the drag coefficient where that is what
+    is published); "andreas2010_winter" gives :func:`z0_andreas2010_winter`.
+    """
+    if callable(spec):
+        return spec
+    if isinstance(spec, str):
+        if spec in DYNAMIC_ROUGHNESS:
+            return DYNAMIC_ROUGHNESS[spec]
+        if spec not in ICE_ROUGHNESS:
+            names = sorted([*ICE_ROUGHNESS, *DYNAMIC_ROUGHNESS])
+            raise ValueError(f"unknown ice roughness {spec!r}; use a value in m or one of {names}")
+        entry = ICE_ROUGHNESS[spec]
+        return float(entry["z0"] if "z0" in entry else z0_from_cdn10(entry["cdn10"]))
+    z0 = np.asarray(spec, dtype=float)
+    if np.any(z0 <= 0):
+        raise ValueError("roughness length must be positive")
+    return z0
