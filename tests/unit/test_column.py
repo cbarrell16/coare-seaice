@@ -52,3 +52,31 @@ def test_run(ref):
     for k in ("Ts", "F_cond", "melt"):
         assert_port(res[k], ref[f"run_nosic__{k}"])
     np.testing.assert_array_equal(res["reinit"], ref["run_nosic__reinit"])
+
+
+def test_conductive_flux_when_surface_is_warmer_than_base():
+    # Task F4: surface at -1 C, base at -1.8 C. The flux is finite and downward (negative).
+    col = IceColumn(h_ice=1.0, h_snow=0.2)
+    col.initialise(-1.0)
+    forcing = dict(theta_a=-1.0, q_a=3.4e-3, p=1000.0, lw_down=305.0, sw_down=0.0, h_s=1e4,
+                   h_l=0.0)  # fmt: skip
+    Ts, F_cond, _ = col.step(600.0, **forcing)
+    assert abs(Ts + 1.0) < 0.05
+    assert np.isfinite(F_cond) and -5.0 < F_cond < 0.0  # about G dT = 0.88 * (-0.8) W m-2
+
+
+def test_legacy_diffusion_f_cond_is_the_column_flux(inputs):
+    from coare_seaice.legacy import OUTPUT_COLUMNS, coare35vn_ice
+
+    n = inputs["u"].size
+    t = np.linspace(-6.0, 3.0, n)  # warms through the base temperature
+    kw = dict(P=1000.0, lat=75.0, Rs=0.0, Rl=300.0, zu=10, zt=10, zq=10, ice_conc=np.ones(n),
+              t_ice_method="diffusion", time_s=600.0 * np.arange(n), verbose=False)  # fmt: skip
+    args = (np.full(n, 6.0), t, np.full(n, 90.0), np.full(n, -1.8))
+    i_f, i_t = OUTPUT_COLUMNS.index("F_cond"), OUTPUT_COLUMNS.index("T_ice")
+    new = coare35vn_ice(*args, **kw)
+    old = coare35vn_ice(*args, _v2_compat=True, **kw)
+    warm = new[:, i_t] > -1.8
+    assert warm.sum() > 10
+    assert np.abs(new[warm, i_f]).max() < 50.0  # finite and of physical size
+    assert np.abs(old[warm, i_f]).max() > 1e3  # the v2 defect

@@ -25,7 +25,7 @@ import numpy as np
 
 from . import thermo
 from .form_drag import lupkes_form_drag
-from .most import DEFAULT_OPTIONS, ice_surface_layer
+from .most import DEFAULT_OPTIONS, V2_OPTIONS, ice_surface_layer
 from .openwater import open_water
 from .roughness import ICE_Z0_DEFAULT, SCALAR_RATIO
 from .surface_temperature import simple
@@ -106,6 +106,7 @@ def coare35vn_ice(
     verbose=True,
     surface_layer_options=None,
     return_diagnostics=False,
+    _v2_compat=False,
 ):
     """COARE 3.5 with the sea-ice extension, v2 interface. Returns an (N, 56) array.
 
@@ -136,6 +137,10 @@ def coare35vn_ice(
                         dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``
                         and the flags ``zeta_limited``, ``qc_rib`` and ``qc_rstar`` (see
                         :func:`coare_seaice.most.ice_surface_layer`). Empty without ice.
+
+    ``_v2_compat=True`` switches off every audit fix of release 0.3.0 that changes
+    results. It exists only so that the tests can still compare the port with the stored
+    v2 outputs; do not use it for science.
     """
     # ---- open-water inputs -------------------------------------------------------------
     u, t, rh, ts = _as_float(u), _as_float(t), _as_float(rh), _as_float(ts)
@@ -213,7 +218,8 @@ def coare35vn_ice(
         h_ice=h_ice_v, h_snow=h_snow_v, k_snow=k_snow, albedo=alb_v, t_base=t_base,
         t_ice_offset=t_ice_offset, time_s=time_s, diffusion_kwargs=diffusion_kwargs,
         rh_reference=rh_reference, verbose=verbose,
-        options=surface_layer_options or DEFAULT_OPTIONS,
+        options=V2_OPTIONS if _v2_compat else (surface_layer_options or DEFAULT_OPTIONS),
+        v2_compat=_v2_compat,
     )  # fmt: skip
     out = np.column_stack(out_ow + out_ice)
     return (out, diag) if return_diagnostics else out
@@ -274,6 +280,7 @@ def _ice_columns(
     rh_reference,
     verbose,
     options=DEFAULT_OPTIONS,
+    v2_compat=False,
 ):
     """The 18 v2 ice columns (38-55), given the open-water quantities they depend on.
 
@@ -309,6 +316,7 @@ def _ice_columns(
         raise ValueError(f"unsupported fallback {method!r}")
 
     seb_res = np.full(N, np.nan)
+    F_cond_column = None
     if t_ice_method == "prescribed":
         T_ice = _per_sample(t_ice, N, "t_ice")
         miss = ~np.isfinite(T_ice)
@@ -344,19 +352,23 @@ def _ice_columns(
         # silently (to be changed in task F7).
         T_ice = np.where(np.isfinite(res["Ts"]), res["Ts"], T_ss)
         seb_res = res["melt"]
-        # AUDIT F4: F_cond is back-calculated through an effective conductance instead
-        # of using the column's own conductive flux; wrong when the surface is warmer
-        # than the base (to be changed in task F4).
-        G = np.where(
-            np.isfinite(res["F_cond"]),
-            res["F_cond"] / np.maximum(t_base - np.minimum(T_ice, 0.0), 1e-6),
-            G,
-        )
+        if v2_compat:
+            # v2 back-calculated F_cond through an effective conductance, which is wrong
+            # (and can be enormous) when the surface is warmer than the base.
+            G = np.where(
+                np.isfinite(res["F_cond"]),
+                res["F_cond"] / np.maximum(t_base - np.minimum(T_ice, 0.0), 1e-6),
+                G,
+            )
+        else:
+            F_cond_column = res["F_cond"]  # the column model's own conductive flux
     else:
         T_ice = _simple(t_ice_method)
 
     fl = ice_surface_layer(t_ice=T_ice, **args)
     lw_net, sw_net, F_cond = seb_terms(T_ice, Rl, Rs, albedo, G, t_base)
+    if F_cond_column is not None:
+        F_cond = np.where(np.isfinite(F_cond_column), F_cond_column, F_cond)
     if t_ice_method not in ("seb_steady", "diffusion"):
         seb_res = F_cond + lw_net + sw_net - fl["hsb"] - fl["hlb"]  # implied imbalance
 

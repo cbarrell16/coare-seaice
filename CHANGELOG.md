@@ -40,6 +40,15 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   reference fixture** (z0_ice = 5e-4 m gives R* of order 10 to 100). It matters only for
   rough ice and strong wind, for example z0_ice = 0.05 m with u* above 0.3 m s-1.
 
+### Fixed (results change)
+- **F4.** `t_ice_method="diffusion"`: the `F_cond` output (column 51) is now the
+  conductive flux of the column model itself. v2 back-calculated it through an
+  effective conductance, dividing by max(t_base - T_ice, 1e-6), which gave wrong and
+  sometimes enormous values when the surface was warmer than the ice base (-1.8 C).
+  Reference fixture, `diffusion` run: 7 of 300 cases change, all with T_ice above
+  -1.8 C; the largest |F_cond| falls from 1.1e8 to 176 W m-2. Fluxes and T_ice are
+  unchanged, and so are all other methods.
+
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 
 ### Added
