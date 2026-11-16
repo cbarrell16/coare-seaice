@@ -4,6 +4,17 @@ All changes that alter results are recorded here, with their size.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased] (branch `verify/igp-rover`)
+
+### Added
+- `scripts/rover_00b_fluxes_coare_seaice.py`: ROVER fluxes recomputed with `ice_fluxes`
+  from the 00 output, written to a separate file, with a new-minus-old comparison by
+  SIC class and figures. Smoke-tested on a synthetic 00-style file (differences as
+  expected: only the F2 viscosity change, about -2.5 % in the ice heat fluxes).
+- `scripts/igp_verify_ship_aircraft.py` and `docs/verification/igp_2018.md`: first IGP
+  verification against the ship's stored COARE 3.0a fluxes and the aircraft eddy
+  covariance. No change to the package.
+
 ## [0.4.0] - unreleased (branch `release/0.4.0`)
 
 Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results of
