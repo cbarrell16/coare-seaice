@@ -99,7 +99,8 @@ def test_per_tile_settings_and_flags(forcing):
     assert np.nanmax(res.ice.t_surface) == -5.0
     expected = {"missing_input", "rib_above_critical", "zeta_limited", "light_wind",
                 "height_above_obukhov_length", "rstar_out_of_range", "not_converged",
-                "t_surface_filled", "melting_surface"}  # fmt: skip
+                "t_surface_filled", "melting_surface",
+                "humidity_far_from_ice_saturation"}  # fmt: skip
     assert set(res.qc) == expected and all(v.dtype == bool for v in res.qc.values())
     np.testing.assert_array_equal(res.qc["light_wind"], forcing.u < 1.0)
     assert res.qc["missing_input"][np.isnan(forcing.sic)].all()

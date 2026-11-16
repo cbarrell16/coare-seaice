@@ -105,10 +105,9 @@ def ice_fluxes(
     Missing data: NaN in gives NaN out for everything that depends on it; flags mark,
     and never change, a value.
     """
-    u = np.array(u, dtype=float).reshape(-1)
-    n = u.size
-    named = dict(t=t, rh=rh, p=p, sst=sst, sic=sic, zu=zu, zt=zt, zq=zq, lat=lat,
+    named = dict(u=u, t=t, rh=rh, p=p, sst=sst, sic=sic, zu=zu, zt=zt, zq=zq, lat=lat,
                  lw_down=lw_down, sw_down=sw_down, zi=zi)  # fmt: skip
+    n = max(np.size(v) for v in named.values())  # numbers are repeated to this length
     a = {k: _array(v, n, k) for k, v in named.items()}
     for k in ("zu", "zt", "zq"):
         if np.any(a[k] <= 0):
@@ -118,7 +117,7 @@ def ice_fluxes(
         raise ValueError("ice_fluxes: sic must be between 0 and 1 (a fraction, not per cent)")
     optional = {k: None if v is None else _array(v, n, k)
                 for k, v in dict(rain=rain, cp=cp, sigH=sigH, time=time).items()}  # fmt: skip
-    F = Forcing(u=u, **a, **optional, jcool=0 if jcool == 0 else 1, salinity=salinity)
+    F = Forcing(**a, **optional, jcool=0 if jcool == 0 else 1, salinity=salinity)
 
     if stability is not None:
         options = replace(options or DEFAULT_OPTIONS, stability=stability)

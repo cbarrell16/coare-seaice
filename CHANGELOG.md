@@ -64,6 +64,10 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   inputs `cp` and `sigH` (and `salinity` for 3.6) are passed to pycoare. Without wave
   inputs the two versions agree within pycoare's own differences (at most 0.8 W m-2
   and 1.2e-4 N m-2 in 200 random polar cases). Ice tiles do not depend on the version.
+- **T9.** Quality flag `humidity_far_from_ice_saturation`: relative humidity with
+  respect to ice outside 80 to 105 % where the ice concentration is at least 0.9
+  (after Andreas et al. 2002; the thresholds are this package's choice, since that paper
+  was not available to check). A flag only: no value is adjusted (tested).
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 

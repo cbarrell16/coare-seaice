@@ -23,6 +23,11 @@ from .tiles import tile_fractions
 
 NITS = 10  # iterations of the ice surface-layer loop
 LIGHT_WIND = 1.0  # m s-1; Grachev et al. (2007) excluded winds of 1 m s-1 and below
+# Humidity check over ice (after Andreas et al. 2002, who found near-surface air over
+# polar sea ice always near ice saturation). The thresholds are choices of this package,
+# not values from that paper, which was not available to check.
+RH_ICE_RANGE = (80.0, 105.0)  # % relative to ice; outside this the sample is flagged
+RH_ICE_MIN_SIC = 0.9  # only where the ice concentration is at least this
 BLEND_MODES = ("flux", "single_temperature")
 _SCHEMES = {"a87": "blended_a87", "ratio": "simple", "prescribed": "prescribed"}
 
@@ -285,9 +290,20 @@ def compute(
     return FluxResult(blended=blended, tiles=results, qc=_quality_flags(F, results), meta=meta)
 
 
+def relative_humidity_over_ice(t, p, rh):
+    """Relative humidity with respect to ice (%) from that with respect to water (%).
+
+    Below 0 C saturation over ice is lower than over water, so the value is higher:
+    100 % over ice is about 91 % over water at -10 C and 82 % at -20 C.
+    """
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return rh * thermo.esat_water(t, p) / thermo.esat_ice(np.minimum(t, 0.0), p)
+
+
 def _quality_flags(F, results):
     """Flags for the blended result: a tile counts where its area fraction is not zero."""
     n = F.n
+    rh_ice = relative_humidity_over_ice(F.t, F.p, F.rh)
 
     def any_tile(flag=None, test=None, kind=None):
         out = np.zeros(n, dtype=bool)
@@ -308,4 +324,6 @@ def _quality_flags(F, results):
         "not_converged": any_tile("not_converged"),
         "t_surface_filled": any_tile("t_surface_filled"),
         "melting_surface": any_tile(test=lambda r: r.t_surface >= 0.0, kind="ice"),
+        "humidity_far_from_ice_saturation": (F.sic >= RH_ICE_MIN_SIC)
+        & ((rh_ice < RH_ICE_RANGE[0]) | (rh_ice > RH_ICE_RANGE[1])),
     }
