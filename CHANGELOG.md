@@ -34,6 +34,11 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   `seb_steady`: ice surface temperature changes by at most 0.27 K. This is larger than
   the 1-2 % expected in the audit. The `simple` scheme (fixed ratio) is unchanged
   except for the reported R*. `most.V2_OPTIONS` restores the old value.
+- **F3.** The Andreas (1987) rough-regime polynomial is no longer extrapolated beyond
+  its fitted range (R* <= 1000): above that the ratios z0T/z0 and z0q/z0 are held at
+  their R* = 1000 values, and the new flag `qc_rstar` is set. **No change on the
+  reference fixture** (z0_ice = 5e-4 m gives R* of order 10 to 100). It matters only for
+  rough ice and strong wind, for example z0_ice = 0.05 m with u* above 0.3 m s-1.
 
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 

@@ -134,7 +134,7 @@ def coare35vn_ice(
                         (stability limit and flag threshold); default as v2
         return_diagnostics  if True, return ``(array, diagnostics)``; ``diagnostics`` is a
                         dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``
-                        and the flags ``zeta_limited`` and ``qc_rib`` (see
+                        and the flags ``zeta_limited``, ``qc_rib`` and ``qc_rstar`` (see
                         :func:`coare_seaice.most.ice_surface_layer`). Empty without ice.
     """
     # ---- open-water inputs -------------------------------------------------------------
@@ -369,7 +369,7 @@ def _ice_columns(
     hsb_blend = A_w * hsb_w + A_ice * fl["hsb"]
     hlb_blend = A_w * hlb_w + A_ice * fl["hlb"]
 
-    diag = {k: fl[k] for k in ("zeta", "Rib", "zeta_limited", "qc_rib")}
+    diag = {k: fl[k] for k in ("zeta", "Rib", "zeta_limited", "qc_rib", "qc_rstar")}
     cols = [
         fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],
         fl["R_star"], fl["z0T"], fl["z0q"],

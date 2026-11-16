@@ -78,3 +78,23 @@ def test_viscosity_option_f2():
     assert np.isclose(new["R_star"][0] / old["R_star"][0], 1.5e-5 / nu, rtol=2e-2)
     assert new["z0T"][0] < old["z0T"][0]
     assert 0.0 < abs(new["hsb"][0] / old["hsb"][0] - 1.0) < 0.05
+
+
+def test_rstar_flag_f3():
+    kw = dict(u=[20.0, 20.0], t=[-10.0, -10.0], t_ice=-12.0)
+    fl = _solve(**kw)
+    assert not fl["qc_rstar"].any()  # z0 = 5e-4 m: R* ~ 30
+    from coare_seaice.most import DEFAULT_OPTIONS
+
+    n = 2
+    t = np.full(n, -10.0)
+    P = np.full(n, 1000.0)
+    q = thermo.specific_humidity(t, P, np.full(n, 80.0))
+    big = ice_surface_layer(
+        u=np.full(n, 25.0), t=t, Q_air=q, t_ice=np.full(n, -12.0), z0_ice=0.05, P=P,
+        grav=np.full(n, 9.82), zu=np.full(n, 10.0), zt=np.full(n, 10.0), zq=np.full(n, 10.0),
+        rhoa=thermo.air_density(t, P, q), cpa=thermo.CPA, von=thermo.VON, fdg=thermo.FDG,
+        ta=t + thermo.TDK, ice_scheme="blended_a87", scalar_ratio=0.2, options=DEFAULT_OPTIONS,
+    )  # fmt: skip
+    assert big["R_star"][0] > 1000 and big["qc_rstar"].all()
+    assert np.isfinite(big["hsb"]).all()

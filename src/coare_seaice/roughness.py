@@ -37,6 +37,7 @@ A87_ZOQ = np.array(
 )
 R_SMOOTH = 0.135
 R_ROUGH = 2.5
+R_MAX = 1000.0  # upper end of the range covered by the Andreas (1987) rough-regime fit
 
 
 def roughness_reynolds(z0, u_star, nu):
@@ -44,13 +45,18 @@ def roughness_reynolds(z0, u_star, nu):
     return z0 * u_star / nu
 
 
-def a87_scalar_roughness(z0_i, u_star_i, nu=NU_AIR_V2):
+def a87_scalar_roughness(z0_i, u_star_i, nu=NU_AIR_V2, guard=True):
     """Andreas (1987) scalar roughness lengths over ice.
 
     Parameters are arrays of the same shape: momentum roughness z0_i (m), friction
     velocity u_star_i (m/s) and kinematic viscosity of air nu (m2 s-1, array or number;
     use :func:`coare_seaice.thermo.air_viscosity`; the default is the v2 constant).
     Returns (z0T, z0q, R*), R* bounded below by 1e-6.
+
+    The rough-regime polynomial is fitted for 2.5 <= R* <= 1000. With ``guard`` (default)
+    it is not extrapolated: for R* > 1000 the ratios z0T/z0 and z0q/z0 are held at their
+    R* = 1000 values (4.5e-6 and 5.1e-6). The returned R* is the actual value, so callers
+    can flag R* > ``R_MAX``. ``guard=False`` extrapolates as v2 did.
     """
     R_star = np.maximum(z0_i * u_star_i / nu, 1e-6)
     lnR = np.log(R_star)
@@ -59,9 +65,8 @@ def a87_scalar_roughness(z0_i, u_star_i, nu=NU_AIR_V2):
     k = (R_star > R_SMOOTH) & (R_star < R_ROUGH)
     bt[k] = A87_ZOT[1, 0] + A87_ZOT[1, 1] * lnR[k]
     bq[k] = A87_ZOQ[1, 0] + A87_ZOQ[1, 1] * lnR[k]
-    # AUDIT F3: the rough-regime polynomial is also used beyond R* = 1000 (its stated
-    # range) with no guard or flag (to be changed in task F3).
     k = R_star >= R_ROUGH
-    bt[k] = A87_ZOT[2, 0] + A87_ZOT[2, 1] * lnR[k] + A87_ZOT[2, 2] * lnR[k] ** 2
-    bq[k] = A87_ZOQ[2, 0] + A87_ZOQ[2, 1] * lnR[k] + A87_ZOQ[2, 2] * lnR[k] ** 2
+    lnr = np.minimum(lnR[k], np.log(R_MAX)) if guard else lnR[k]
+    bt[k] = A87_ZOT[2, 0] + A87_ZOT[2, 1] * lnr + A87_ZOT[2, 2] * lnr**2
+    bq[k] = A87_ZOQ[2, 0] + A87_ZOQ[2, 1] * lnr + A87_ZOQ[2, 2] * lnr**2
     return z0_i * np.exp(bt), z0_i * np.exp(bq), R_star

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .roughness import NU_AIR_V2, a87_scalar_roughness
+from .roughness import NU_AIR_V2, R_MAX, a87_scalar_roughness
 from .stability import psit_26, psiu_26
 from .thermo import LAPSE_DRY, LS_ICE, TDK, air_viscosity, qsat_ice
 
@@ -35,11 +35,16 @@ class SurfaceLayerOptions:
     viscosity : "coare" (default) uses the temperature-dependent kinematic viscosity of
         air (:func:`coare_seaice.thermo.air_viscosity`, at the air temperature) in the
         roughness Reynolds number R* = z0 u* / nu; "constant" uses the v2 value 1.5e-5.
+    a87_guard : if True (default) the Andreas (1987) scalar-roughness polynomial is not
+        extrapolated beyond R* = 1000 (see
+        :func:`coare_seaice.roughness.a87_scalar_roughness`); the output ``qc_rstar`` is
+        True where R* > 1000.
     """
 
     zeta_max: float = ZETA_MAX_DEFAULT
     rib_critical: float = RIB_CRITICAL
     viscosity: str = "coare"
+    a87_guard: bool = True
 
     def __post_init__(self):
         if self.viscosity not in ("coare", "constant"):
@@ -49,7 +54,7 @@ class SurfaceLayerOptions:
 DEFAULT_OPTIONS = SurfaceLayerOptions()
 # The v2 behaviour, kept so that the port can still be tested against the stored v2
 # outputs: every audit fix that changes results is switched off here.
-V2_OPTIONS = SurfaceLayerOptions(viscosity="constant")
+V2_OPTIONS = SurfaceLayerOptions(viscosity="constant", a87_guard=False)
 
 
 def bulk_richardson(theta_air, t_sfc, q_air, q_sfc, u, z, ta, grav):
@@ -103,6 +108,8 @@ def ice_surface_layer(
     used in the final pass), zeta_limited (True where the limit on |zeta| acted in the
     last iteration), Rib (bulk Richardson number) and qc_rib (True where
     Rib > options.rib_critical: outside the validated range of the stability functions).
+    qc_rstar is True where R* > 1000 with the 'blended_a87' scheme (beyond the range of
+    the Andreas 1987 fit; the ratio z0T/z0 is then held at its R* = 1000 value).
     """
     N = u.size
     z0_ice = z0_ice * np.ones(N)
@@ -124,7 +131,7 @@ def ice_surface_layer(
 
     def scalar_rough(usr):
         if ice_scheme == "blended_a87":
-            return a87_scalar_roughness(z0_ice, usr, nu)
+            return a87_scalar_roughness(z0_ice, usr, nu, guard=options.a87_guard)
         return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / nu
 
     # AUDIT F6: fixed number of iterations with no convergence diagnostic (task F6).
@@ -184,4 +191,5 @@ def ice_surface_layer(
         zeta_limited=np.abs(zet_raw) > options.zeta_max,
         Rib=rib,
         qc_rib=rib > options.rib_critical,
+        qc_rstar=(R_star > R_MAX) & (ice_scheme == "blended_a87"),
     )
