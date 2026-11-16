@@ -21,7 +21,8 @@ D_MAX = 300.0  # maximum floe diameter (m)
 def lupkes_form_drag(A_ice, z0w):
     """Form-drag part of the neutral 10 m drag coefficient over the MIZ.
 
-    Lupkes et al. (2012) Eq. 22 / Elvidge et al. (2016) Eq. 11, E2016B parameters:
+    The form-drag term of Lupkes et al. (2012), their Eq. 51 (their Eq. 22 is the total
+    drag coefficient), as written by Elvidge et al. (2016) Eq. 11, E2016B parameters:
 
         C_DN10f = A (h_f / D_i) S_c^2 (c_e / 2) [ln(h_f / z0w) / ln(10 / z0w)]^2
 
@@ -29,7 +30,6 @@ def lupkes_form_drag(A_ice, z0w):
     Returns 0 where A < 0.01 and NaN where A is not finite. A is clipped to
     [1e-6, 1 - 1e-6], so at A = 1 the result is very small but not exactly zero.
     """
-    # AUDIT F9: citation to be corrected to Lupkes et al. (2012) Eq. 51 (task F9).
     A_in = np.asarray(A_ice, dtype=float)
     A = np.clip(A_in, 1e-6, 1.0 - 1e-6)
     A_star = 1.0 / (1.0 - (D_MIN / D_MAX) ** (1.0 / BETA_FD))

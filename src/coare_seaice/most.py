@@ -7,14 +7,110 @@ using the COARE 3.5 stability functions and either the Andreas (1987) scalar rou
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
-from .roughness import NU_AIR, a87_scalar_roughness
+from .roughness import NU_AIR_V2, R_MAX, a87_scalar_roughness
 from .stability import psit_26, psiu_26
-from .thermo import LAPSE_DRY, LS_ICE, qsat_ice
+from .thermo import LAPSE_DRY, LS_ICE, TDK, air_viscosity, qsat_ice
 
-# AUDIT F1: hard-coded stability clip |zeta| <= 10 with no flag (to be changed in task F1).
-ZETA_CLIP = 10.0
+ZETA_MAX_DEFAULT = 10.0  # limit on |zeta| = |zu / L| in the iteration (the v2 value)
+RIB_CRITICAL = 0.2  # Grachev et al. (2007): critical bulk Richardson number, Ri_B,cr ~ 0.2
+
+
+@dataclass(frozen=True)
+class SurfaceLayerOptions:
+    """Numerical and physical options of :func:`ice_surface_layer`.
+
+    zeta_max, zeta_min : the stability parameter zeta = zu / L is limited to
+        [zeta_min, zeta_max] while iterating (defaults 10 and -10, the v2 values). The
+        unstable limit is not needed for a solution to exist; it is kept as the default
+        only so that results do not change. It cuts off the free-convection limit in
+        calm, very unstable conditions (flagged by ``zeta_limited``), so set
+        ``zeta_min=-1000`` when ``gustiness`` is on, as ``ANDREAS2010_LIGHT_WIND`` does.
+        About the stable limit: Without a limit the iteration has no solution in some very
+        stable, light-wind cases (the turbulent flux collapses). The limit is a numerical
+        device, not physics: where it acts the result is set by the limit, and the output
+        ``zeta_limited`` is True. The default, 10, is the v2 value.
+    rib_critical : samples with a bulk Richardson number above this are flagged
+        (``qc_rib``). Grachev et al. (2007) take Ri_B,cr ~ 0.2 as the critical value at
+        SHEBA (text after their Eq. 8) and state that their profile functions are valid
+        for Ri_B < Ri_B,cr (after their Eq. 13). They associate zeta = O(10) with
+        Ri_B ~ 0.2 on average, while noting the relation is not universal (their Fig. 3).
+    viscosity : "coare" (default) uses the temperature-dependent kinematic viscosity of
+        air (:func:`coare_seaice.thermo.air_viscosity`, at the air temperature) in the
+        roughness Reynolds number R* = z0 u* / nu; "constant" uses the v2 value 1.5e-5.
+    a87_guard : if True (default) the Andreas (1987) scalar-roughness polynomial is not
+        extrapolated beyond R* = 1000 (see
+        :func:`coare_seaice.roughness.a87_scalar_roughness`); the output ``qc_rstar`` is
+        True where R* > 1000.
+    gustiness, windless : light-wind terms of Andreas et al. (2010, Q. J. R. Meteorol.
+        Soc. 136, 927-943), both off by default. They replace the measured wind U at zu
+        by an effective wind S in the flux and profile equations (their Eq. 2.1, 2.2):
+
+            unstable, ``gustiness``:  S = (U^2 + beta_g^2 w*^2)^(1/2)          (Eq. 2.4)
+                                      w* = u* (-z_i / (k L))^(1/3)             (Eq. 2.5)
+            stable, ``windless``:     S = U + 0.5 sech(U)   (U, S in m s-1)    (Eq. 2.6)
+
+        with beta_g = 1.25 and z_i = 600 m as in the paper (``beta_g``, ``zi``). The
+        The stable form applies where the surface-minus-air virtual potential temperature
+        difference is negative; the gust form applies elsewhere once L < 0. At exact
+        neutral neither acts and the v2 floor applies. Stress over ice is
+        rho u*^2 = rho C_D S^2 (their Eq. 2.1a). COARE over water instead divides the
+        stress by the gust factor S/U, so with ``gustiness`` on the blended stress mixes
+        two conventions; the difference matters only in near-calm unstable air (at
+        U = 0.3 m s-1, ice stress 0.014 N m-2 against 0.002 with the COARE scaling).
+        With the default ``zeta_min`` of -10 the gust term is throttled in near-calm air
+        (at zu = 10 m and a 20 K unstable difference the free-convection solution has
+        zeta = -17); use ``zeta_min=-1000`` with it. Convergence is slower in near-calm
+        air: check ``not_converged`` or raise ``nits``. Where a term is off (the default)
+        the v2 treatment applies: a floor of 0.5 m s-1 on U.
+    neutral_if_nan : v2 treated a NaN stability parameter (a missing input) as neutral, so
+        some outputs stayed finite. Default False: NaN in gives NaN out.
+    conv_tol : the output ``not_converged`` is True where the sensible or latent heat flux
+        still changed by more than this (W m-2) in the last iteration. Diagnostic only.
+    """
+
+    zeta_max: float = ZETA_MAX_DEFAULT
+    zeta_min: float = -ZETA_MAX_DEFAULT
+    rib_critical: float = RIB_CRITICAL
+    viscosity: str = "coare"
+    a87_guard: bool = True
+    conv_tol: float = 0.1
+    neutral_if_nan: bool = False
+    gustiness: bool = False
+    windless: bool = False
+    beta_g: float = 1.25
+    zi: float = 600.0
+
+    def __post_init__(self):
+        if self.viscosity not in ("coare", "constant"):
+            raise ValueError("viscosity must be 'coare' or 'constant'")
+
+
+DEFAULT_OPTIONS = SurfaceLayerOptions()
+# Both light-wind terms of Andreas et al. (2010), with no effective unstable limit.
+ANDREAS2010_LIGHT_WIND = SurfaceLayerOptions(gustiness=True, windless=True, zeta_min=-1000.0)
+# The v2 behaviour, kept so that the port can still be tested against the stored v2
+# outputs: every audit fix that changes results is switched off here.
+V2_OPTIONS = SurfaceLayerOptions(viscosity="constant", a87_guard=False, neutral_if_nan=True)
+
+
+def bulk_richardson(theta_air, t_sfc, q_air, q_sfc, u, z, ta, grav):
+    """Bulk Richardson number between the surface and height z (Grachev et al. 2007, Eq. 8).
+
+        Ri_B = (g z / theta_v) (d_theta + 0.61 theta_v d_q) / U^2,
+
+    with d_theta and d_q the air-minus-surface differences in potential temperature (K)
+    and specific humidity (kg/kg), so Ri_B > 0 is stable. theta_v is taken as
+    ta (1 + 0.61 q_air) with ta in K; U is the measured wind at z = zu with no floor, so
+    Ri_B is large (or infinite) in calm conditions. Temperature and humidity measured at
+    other heights are used as they are.
+    """
+    thv = ta * (1.0 + 0.61 * q_air)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return grav * z / thv * ((theta_air - t_sfc) + 0.61 * thv * (q_air - q_sfc)) / u**2
 
 
 def ice_surface_layer(
@@ -36,6 +132,7 @@ def ice_surface_layer(
     ice_scheme,
     scalar_ratio,
     nits=10,
+    options=DEFAULT_OPTIONS,
 ):
     """Turbulent fluxes over the ice fraction (v2 ``_ice_fluxes``).
 
@@ -45,7 +142,19 @@ def ice_surface_layer(
 
     Returns a dict of arrays: tau, hsb, hlb (fluxes, heat positive upward), Cdn, Chn,
     Cen (neutral 10 m coefficients x 1e3), R_star, z0T, z0q, h_s and h_l (bulk
-    conductances: H = h_s (Ts - theta), LE = h_l (qs - q)), Qs (kg/kg) and L (m).
+    conductances: H = h_s (Ts - theta), LE = h_l (qs - q)), Qs (kg/kg), L (m), usr (u*,
+    m/s) and S (the effective wind used, m/s: U with the 0.5 m/s floor, or with the
+    optional light-wind terms).
+
+    Stability diagnostics and flags (see :class:`SurfaceLayerOptions`): zeta (= zu / L as
+    used in the final pass), zeta_limited (True where the limit on |zeta| acted in the
+    last iteration), Rib (bulk Richardson number) and qc_rib (True where
+    Rib > options.rib_critical: outside the validated range of the stability functions).
+    iter_dH and iter_dLE are the changes in the ice sensible and latent heat flux in the
+    last iteration (W m-2) and not_converged is True where either exceeds
+    options.conv_tol (or is not finite).
+    qc_rstar is True where R* > 1000 with the 'blended_a87' scheme (beyond the range of
+    the Andreas 1987 fit; the ratio z0T/z0 is then held at its R* = 1000 value).
     """
     N = u.size
     z0_ice = z0_ice * np.ones(N)
@@ -55,29 +164,39 @@ def ice_surface_layer(
     dt_ice = t_sfc - t - LAPSE_DRY * zt  # potential temperature difference
     dq_ice = Qs_ice - Q_air
 
-    # AUDIT F10: no gustiness (unstable) or windless (stable) term over ice; only a 0.5 m/s
-    # floor on the wind (to be changed in task F10).
+    # Effective wind. Default (v2): a floor of 0.5 m/s on the measured wind. The optional
+    # light-wind terms of Andreas et al. (2010) replace it; see SurfaceLayerOptions.
     ut = np.maximum(u, 0.5)
+    stable = (dt_ice + 0.61 * ta * dq_ice) < 0  # surface colder (denser) than the air
+    if options.windless:
+        ut = np.where(stable, u + 0.5 / np.cosh(u), ut)  # Eq. 2.6
+    # Unstable samples start from the floored wind; w* replaces the floor in the iteration.
+    gusty = ~stable & np.isfinite(dt_ice + dq_ice) if options.gustiness else None
     usr_i = np.maximum(ut * von / np.log(zu / z0_ice), 0.001)
     tsr_i = np.zeros(N)
     qsr_i = np.zeros(N)
     L_i = np.full(N, 1e6)
 
+    nu = air_viscosity(ta - TDK) if options.viscosity == "coare" else NU_AIR_V2
+
     def scalar_rough(usr):
         if ice_scheme == "blended_a87":
-            return a87_scalar_roughness(z0_ice, usr)
-        # AUDIT F2: constant air viscosity in R* (to be changed in task F2).
-        return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / NU_AIR
+            return a87_scalar_roughness(z0_ice, usr, nu, guard=options.a87_guard)
+        return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / nu
 
-    # AUDIT F6: fixed number of iterations with no convergence diagnostic (task F6).
+    # A fixed number of iterations (as COARE); convergence is reported, not assumed.
+    dH = dLE = np.full(N, np.inf)
     for _ in range(nits):
+        H_prev, LE_prev = usr_i * tsr_i, usr_i * qsr_i
         z0T_i, z0q_i, R_star = scalar_rough(usr_i)
         tvsr_i = tsr_i + 0.61 * ta * qsr_i
-        zet_i = np.clip(
-            von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6), -ZETA_CLIP, ZETA_CLIP
-        )
+        zet_raw = von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6)
+        zet_i = np.clip(zet_raw, options.zeta_min, options.zeta_max)
         safe = np.abs(zet_i) > 1e-6
         L_i = np.where(safe, zu / np.where(safe, zet_i, 1.0), 1e6)
+        if not options.neutral_if_nan:
+            # A missing input must not fall back to neutral stability: NaN in, NaN out.
+            L_i = np.where(np.isnan(zet_i), np.nan, L_i)
         psi_m = psiu_26(zu / L_i)
         psi_t = psit_26(zt / L_i)
         psi_q = psit_26(zq / L_i)
@@ -86,12 +205,18 @@ def ice_surface_layer(
         denom_q = np.log(zq / np.maximum(z0q_i, 1e-9)) - psi_q
         denom_t = np.where(np.abs(denom_t) > 0.1, denom_t, 0.1)
         denom_q = np.where(np.abs(denom_q) > 0.1, denom_q, 0.1)
+        if gusty is not None:
+            # Eq. 2.5: w* = u* (-zi / (k L))^(1/3), for L < 0; Eq. 2.4: S^2 = U^2 + (beta_g w*)^2
+            wstar = usr_i * np.cbrt(np.maximum(-options.zi / (von * L_i), 0.0))
+            ut = np.where(gusty & (L_i < 0), np.sqrt(u**2 + (options.beta_g * wstar) ** 2), ut)
         usr_i = ut * von / denom_m
         tsr_i = -dt_ice * von * fdg / denom_t
         qsr_i = -dq_ice * von * fdg / denom_q
+        dH = rhoa * cpa * np.abs(usr_i * tsr_i - H_prev)
+        dLE = rhoa * LS_ICE * np.abs(usr_i * qsr_i - LE_prev)
 
-    # Final pass with the converged u* and L.
-    # AUDIT F6: u* is not updated in this final pass (to be changed in task F6).
+    # Final pass with the L of the last iteration. u* needs no update here: the last
+    # iteration already computed it from this L (tested in test_final_usr_is_consistent).
     z0T_i, z0q_i, R_star = scalar_rough(usr_i)
     denom_t = np.log(zt / np.maximum(z0T_i, 1e-9)) - psit_26(zt / L_i)
     denom_q = np.log(zq / np.maximum(z0q_i, 1e-9)) - psit_26(zq / L_i)
@@ -108,6 +233,7 @@ def ice_surface_layer(
 
     z0T_s, z0q_s = np.maximum(z0T_i, 1e-9), np.maximum(z0q_i, 1e-9)
     lz = np.log(10.0 / z0_ice)
+    rib = bulk_richardson(t + LAPSE_DRY * zt, t_sfc, Q_air, Qs_ice, u, zu, ta, grav)
     return dict(
         tau=tau_ice,
         hsb=hsb_ice,
@@ -122,4 +248,14 @@ def ice_surface_layer(
         h_l=rhoa * LS_ICE * Cq_i * ut,
         Qs=Qs_ice,
         L=L_i,
+        usr=usr_i,
+        S=ut,
+        zeta=zet_i,
+        zeta_limited=(zet_raw > options.zeta_max) | (zet_raw < options.zeta_min),
+        Rib=rib,
+        qc_rib=rib > options.rib_critical,
+        qc_rstar=(R_star > R_MAX) & (ice_scheme == "blended_a87"),
+        iter_dH=dH,
+        iter_dLE=dLE,
+        not_converged=~((dH <= options.conv_tol) & (dLE <= options.conv_tol)),
     )

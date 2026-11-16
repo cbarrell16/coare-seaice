@@ -5,6 +5,8 @@ Builds on a one-layer FTCS soil diffusion practical by Ian Renfrew.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from scipy.linalg import solve_banded
 
@@ -13,6 +15,7 @@ from ..thermo import T_FREEZE_SW, TK0, dqsat_ice_dt, qsat_ice
 from .properties import (
     BETA_K,
     C_ICE0,
+    C_ICE0_V2,
     C_SNOW,
     K_ICE_FRESH,
     K_SNOW,
@@ -29,8 +32,8 @@ class IceColumn:
 
     - Fully implicit (backward Euler) time stepping on a snow layer over ice; interface
       conductances from the harmonic mean.
-    - Salinity-dependent ice conductivity and heat capacity (Untersteiner 1961; Bitz &
-      Lipscomb 1999), updated by Picard iteration each step.
+    - Salinity-dependent ice conductivity and heat capacity (Bitz & Lipscomb 1999, who
+      cite Untersteiner 1964 for the conductivity), updated by Picard iteration each step.
     - Upper boundary: a zero-heat-capacity surface node closed by the SEB
 
           0 = F_cond + eps LWd + (1 - alb) SWd - eps sigma Ts^4 - SH(Ts) - LH(Ts),
@@ -38,10 +41,16 @@ class IceColumn:
       linearised about the current Ts (Newton), with SH = h_s (Ts - theta_a) and
       LH = h_l (qsat_ice(Ts) - q_a).
     - Ts capped at 0 C; the excess energy is reported as a melt flux.
-    - Ice base held at ``t_base``. Initial state: piecewise-linear steady profile.
+    - Ice base held at ``t_base``. Initial state: the steady profile of the column's own
+      layers and properties (constant conductive flux through all layers), found by
+      iteration because the ice conductivity depends on temperature.
 
-    Thickness is fixed per column. :meth:`run` re-initialises the column after data gaps
-    and open-water spells.
+    Thickness is fixed per column: one column is one slab. :meth:`run` re-initialises the
+    column after data gaps and open-water spells.
+
+    ``v2_compat=True`` restores three v2 behaviours for the regression tests only: the
+    initial profile from fresh-ice conductivity, a melt flux that could carry over from an
+    earlier Picard pass, and the v2 fresh-ice heat capacity.
     """
 
     def __init__(
@@ -55,7 +64,9 @@ class IceColumn:
         k_snow=K_SNOW,
         rho_snow=RHO_SNOW,
         salinity_dependent=True,
+        v2_compat=False,
     ):
+        self.v2_compat = bool(v2_compat)
         self.h_ice, self.h_snow = float(h_ice), float(max(h_snow, 0.0))
         self.n_snow = n_snow if self.h_snow > 0.005 else 0
         self.n_ice = int(n_ice)
@@ -86,11 +97,12 @@ class IceColumn:
 
     def _rhoc(self, T):
         rc = np.full(self.J, self.rho_snow * C_SNOW)
+        c0 = C_ICE0_V2 if self.v2_compat else C_ICE0
         if self.salinity_dependent:
             Ti = np.minimum(T[~self.is_snow], -0.1)
-            rc[~self.is_snow] = RHO_ICE * (C_ICE0 + L0_MU * self.s_ice / Ti**2)
+            rc[~self.is_snow] = RHO_ICE * (c0 + L0_MU * self.s_ice / Ti**2)
         else:
-            rc[~self.is_snow] = RHO_ICE * C_ICE0
+            rc[~self.is_snow] = RHO_ICE * c0
         return rc
 
     def _conductances(self, T):
@@ -103,22 +115,46 @@ class IceColumn:
         return g_top, g_mid, g_bot
 
     # -- steady state -------------------------------------------------------------------
-    def steady_profile(self, Ts):
-        """Piecewise-linear steady profile between Ts and t_base (constant properties)."""
-        # AUDIT F5: uses fresh-ice conductivity, not the column's own salinity-dependent
-        # properties (to be changed in task F5).
+    def _steady(self, Ts):
+        """Steady profile and conductive flux (W m-2, positive upward) for surface Ts."""
         Ts = min(float(Ts), 0.0)
-        k_i = K_ICE_FRESH
-        G = effective_conductance(self.h_ice, self.h_snow, k_i, self.k_snow)
-        F = G * (self.t_base - Ts)  # upward conductive flux
-        T = np.empty(self.J)
-        for j in range(self.J):
-            zj = self.z[j]
-            if self.is_snow[j]:
-                T[j] = Ts + F * zj / self.k_snow
-            else:
-                T[j] = Ts + F * (self.h_snow / self.k_snow + (zj - self.h_snow) / k_i)
-        return T
+        if self.v2_compat:  # v2: fresh-ice conductivity whatever the column's properties
+            k_i = K_ICE_FRESH
+            G = effective_conductance(self.h_ice, self.h_snow, k_i, self.k_snow)
+            F = G * (self.t_base - Ts)
+            T = np.empty(self.J)
+            for j in range(self.J):
+                zj = self.z[j]
+                if self.is_snow[j]:
+                    T[j] = Ts + F * zj / self.k_snow
+                else:
+                    T[j] = Ts + F * (self.h_snow / self.k_snow + (zj - self.h_snow) / k_i)
+            return T, F
+        # Constant flux F through resistances in series: surface -> layer 0 -> ... -> base.
+        # The ice conductivity depends on temperature, so iterate to a fixed point.
+        T = Ts + (self.t_base - Ts) * self.z / (self.h_snow + self.h_ice)
+        F = 0.0
+        for _ in range(100):
+            g_top, g_mid, g_bot = self._conductances(T)
+            r = np.concatenate(([1.0 / g_top], 1.0 / g_mid, [1.0 / g_bot]))
+            F = (self.t_base - Ts) / r.sum()
+            T_new = Ts + F * np.cumsum(r[:-1])
+            done = np.max(np.abs(T_new - T)) < 1e-12
+            T = T_new
+            if done:
+                break
+        else:
+            if np.all(np.isfinite(T)):
+                warnings.warn("IceColumn: steady profile did not converge", stacklevel=2)
+        return T, F
+
+    def steady_profile(self, Ts):
+        """Steady layer temperatures (C) between surface Ts and the base at t_base."""
+        return self._steady(Ts)[0]
+
+    def steady_flux(self, Ts):
+        """Steady conductive flux (W m-2, positive upward) for surface temperature Ts."""
+        return self._steady(Ts)[1]
 
     def initialise(self, Ts):
         self.Ts = min(float(Ts), 0.0)
@@ -148,9 +184,10 @@ class IceColumn:
         Tn = self.T.copy()
         Ts = self.Ts if np.isfinite(self.Ts) else -5.0
         T_new, Ts_new = Tn.copy(), Ts
-        # AUDIT F5: melt is not reset at each Picard pass (to be changed in task F5).
         melt = 0.0
         for _ in range(n_picard):
+            if not self.v2_compat:
+                melt = 0.0  # a melt flux from an earlier pass must not carry over
             rhoc = self._rhoc(0.5 * (Tn + T_new))
             g_top, g_mid, g_bot = self._conductances(0.5 * (Tn + T_new))
             cap = rhoc * self.dz / dt  # W m-2 K-1
@@ -248,11 +285,12 @@ class IceColumn:
                 self.initialise(vals[7])
                 out["reinit"][i] = True
                 out["Ts"][i] = self.Ts
-                # AUDIT F5: uses the default (fresh-ice, default-snow) conductance, not the
-                # column's own k_snow (to be changed in task F5).
-                out["F_cond"][i] = effective_conductance(self.h_ice, self.h_snow) * (
-                    self.t_base - self.Ts
-                )
+                if self.v2_compat:  # v2: default fresh-ice and default-snow conductance
+                    out["F_cond"][i] = effective_conductance(self.h_ice, self.h_snow) * (
+                        self.t_base - self.Ts
+                    )
+                else:
+                    out["F_cond"][i] = self.steady_flux(self.Ts)
                 out["melt"][i] = 0.0
             else:
                 Ts, Fc, m = self.step(time_s[i] - last_t, *vals[:7], albedo=albedo)

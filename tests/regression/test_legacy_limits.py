@@ -73,7 +73,7 @@ def test_argument_checks():
     with pytest.raises(ValueError):
         _call(0.5, rh_reference="air")
     with pytest.raises(ValueError):
-        coare35vn_ice([5.0], [-5.0], [80.0], [0.0], zu=np.array([10.0]))
+        coare35vn_ice([5.0], [-5.0], [80.0], [0.0], zu=np.array([10.0, 12.0]))  # wrong length
 
 
 def test_inputs_not_modified():
