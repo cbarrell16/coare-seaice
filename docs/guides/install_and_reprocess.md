@@ -35,6 +35,9 @@ python -c "import coare_seaice, pycoare; print(coare_seaice.__version__)"
 
 To upgrade later, run the same install command again (add `--upgrade` for a wheel).
 
+The scripts in `scripts/` also need `xarray` and `netCDF4`. Add them with the
+`verify` extra, for example `pip install "coare_seaice-<version>-py3-none-any.whl[verify]"`.
+
 ## Switching existing code from `coare35vn_ice.py`
 
 Replace
