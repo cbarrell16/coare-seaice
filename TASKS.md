@@ -20,7 +20,7 @@ Every task that touches equations, constants or results ends with a `physics-rev
 **Left, in priority order:**
 1. 🔶 Merge PR 4, then PR 5.
 2. 🔶 Run `rover_00b_fluxes_coare_seaice.py` on the UEA machine and check the log against the expected differences in its docstring.
-3. 🔶 Confirm the IGP Alliance temperature/humidity height (20 m inferred) and check the aircraft latent heat flux on flight 295 (suspect).
+3. 🔶 Check the temperature/humidity height used in the 2020 Alliance COARE 3.0a processing (sensor at about 8 m; stored fluxes fit 20 m best) and check the aircraft latent heat flux on flight 295 (suspect).
 4. IGP roughness test: rerun part C with `z0_ice="iceland_sea"` and with the open-water coefficients anchored (T7 water tile), as Elvidge et al. (2021) E10 does.
 5. T10 proposal from the IGP part C results (thin-ice tile with an energy-balance temperature against the aggregate-temperature result), then ACCACIA.
 6. V1–V4 as package code (`coare_seaice.verify`), folding in the two scripts; then V9, V10.

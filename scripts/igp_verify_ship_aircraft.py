@@ -24,15 +24,16 @@ All three use `coare_seaice.ice_fluxes`. Nothing is tuned to these data.
 
 Methods details (written to the log and to OUT_DIR/igp_verification_methods.md):
 - Ship inputs: measured wind (LIDAR, 40 m), air temperature and relative humidity
-  (WeatherPack or calibrated HATPRO; height set by ZT/ZQ below), pressure, SST (bow
+  (WeatherPack or calibrated HATPRO; about 8 m above sea level, ZT/ZQ below), pressure, SST (bow
   thermometer, CTD-filled). Windows in harbour, or with any input missing, are skipped.
   The stored COARE 3.0a fluxes exist for some windows with a missing measured input
   (filled in the 2020 processing); those windows are not compared.
 - Ship position at an aircraft run time: linear interpolation of the 10-min ship
   latitude and longitude in time. Distance: great circle.
 - Aircraft runs: the IGP long-run (9 km) database. Over the sea only (orog < 10 m), low
-  level (radar altitude <= MAX_ALT for part C; <= MAX_ALT_B for part B, which is lenient
-  because few runs near the ship were flown low), wind present. Terrain height (orog)
+  level (radar altitude <= MAX_ALT, 60 m, for parts B and C), wind present. Part B
+  repeats the statistics for distance limits DIST_STEPS_KM to show the sensitivity to
+  distance from the ship. Terrain height (orog)
   is missing for some flights; those runs are kept (the database lists them over sea).
   Quality: z0_flag <= 1 for stress,
   z0T_flag <= 1 for sensible heat, z0q_flag <= 1 for latent heat, as the database readme
@@ -69,18 +70,19 @@ AIRCRAFT_TXT = DATA / "IGP_flights_database_obs_lr.txt"
 OUT_DIR = Path(os.environ.get("COARE_SEAICE_OUT", "outputs"))
 
 ZU = 40.0  # ship wind height (m): "Wind Speed at 40m altitude from WindCube LIDAR"
-# Ship temperature and humidity height (m). NOT in the file metadata. 20 m is the height
-# that best reproduces the stored COARE 3.0a fluxes (scan of 5-40 m, see the log); please
-# replace with the documented height.
-ZT = ZQ = 20.0
+# Ship temperature and humidity height (m): about 8 m above sea level (Chris Barrell, pers.
+# comm., 16 Nov 2026; not in the file metadata). The log also scans other heights against the
+# stored COARE 3.0a fluxes.
+ZT = ZQ = 8.0
 COARE = "3.5"
 JCOOL_SHIP = 1  # cool skin on for the ship, with default radiation (see RS_SHIP, RL_SHIP)
 RS_SHIP, RL_SHIP = 150.0, 370.0  # no radiation in the ship file: pycoare-style defaults
-MAX_DIST_KM = 50.0  # part B: aircraft run within this distance of the ship
-MAX_ALT = 60.0  # part C: aircraft runs at or below this radar altitude (m)
-# Part B is lenient: the runs near the ship were mostly flown higher (lowest run of flight
-# 295 was 77 m), so allow higher runs there and report results by altitude.
-MAX_ALT_B = 150.0
+MAX_ALT = 60.0  # aircraft runs at or below this radar altitude (m), parts B and C
+# Part B: distance from the ship is relaxed in steps to test sensitivity. Few low runs were
+# flown close to the ship, so the comparison is loose; the main limit is MAX_DIST_KM.
+DIST_STEPS_KM = (10.0, 25.0, 50.0, 100.0, 150.0, 200.0)
+MAX_DIST_KM = 50.0
+MAX_DT_MIN = 10.0  # aircraft run time to nearest ship 10-min window
 QC_MAX = 1  # database flags: 0 good, 1 ok
 ICE_BINS = [-0.001, 0.0001, 0.25, 0.5, 0.75, 0.9999, 1.0]
 ICE_LABELS = ["0", "0-0.25", "0.25-0.5", "0.5-0.75", "0.75-1", "1"]
@@ -170,12 +172,12 @@ def ship_run(sic, zt=ZT, idx=None):
 
 log.info(f"\nHeight check (zt = zq scanned; zu = {ZU} m; open water; median new - stored):")
 idx = np.where(use)[0]
-for zt in (10.0, 15.0, 20.0, 25.0, 30.0):
+for zt in (5.0, 8.0, 10.0, 15.0, 20.0, 25.0, 30.0):
     r = ship_run(0.0, zt)
     d = r.water.hsb - stored["hsb"][idx]
     log.info(f"  zt={zt:4.0f} m: sensible {np.nanmedian(d):+.2f} W m-2, "
              f"latent {np.nanmedian(r.water.hlb - stored['hlb'][idx]):+.2f} W m-2")  # fmt: skip
-log.info(f"Using zt = zq = {ZT} m (not documented in the file: confirm).\n")
+log.info(f"Using zt = zq = {ZT} m (sensor height from the ship team; not in the file).\n")
 
 res_ship = ship_run(0.0)
 new_ship = {"tau": np.full(len(ship), np.nan), "hsb": np.full(len(ship), np.nan),
@@ -242,10 +244,10 @@ air["dist_ship_km"] = great_circle_km(air.lat, air.lon, slat, slon)
 # B. Ship bulk vs aircraft eddy covariance near the ship
 # ---------------------------------------------------------------------------
 log.info("\n" + "=" * 78)
-log.info(f"B. Ship bulk vs aircraft eddy covariance, runs within {MAX_DIST_KM:.0f} km of the ship"
-         f" and at or below {MAX_ALT_B:.0f} m\n")  # fmt: skip
-near = air[sea & (air.altradgps <= MAX_ALT_B) & (air.dist_ship_km <= MAX_DIST_KM)].copy()
-# nearest ship window in time (10 min windows; keep matches within 10 min)
+log.info(f"B. Ship bulk vs aircraft eddy covariance: runs at or below {MAX_ALT:.0f} m, by "
+         f"distance from the ship (main limit {MAX_DIST_KM:.0f} km)\n")  # fmt: skip
+near = air[low & (air.dist_ship_km <= max(DIST_STEPS_KM))].copy()
+# nearest ship window in time (10 min windows; keep matches within MAX_DT_MIN)
 pos = np.searchsorted(ship.index.to_numpy(), near.time.to_numpy())
 pos = np.clip(pos, 1, len(ship) - 1)
 prev = ship.index.to_numpy()[pos - 1]
@@ -254,38 +256,56 @@ pick = np.where(np.abs(near.time.to_numpy() - prev) <= np.abs(nxt - near.time.to
                 pos - 1, pos)  # fmt: skip
 dt_min = np.abs(ship.index.to_numpy()[pick] - near.time.to_numpy()) / np.timedelta64(1, "m")
 near["ship_i"] = pick
-ok_b = (dt_min <= 10) & use[pick]
-near = near[ok_b]
-log.info(f"Runs within {MAX_DIST_KM:.0f} km: {int(ok_b.size)}; with a usable ship window within "
-         f"10 min: {len(near)} (flights {sorted(near.flightno.unique())})")  # fmt: skip
-log.info(f"Distance to ship: median {near.dist_ship_km.median():.1f} km, range "
-         f"{near.dist_ship_km.min():.1f}-{near.dist_ship_km.max():.1f} km; aircraft ice fraction "
-         f"median {near.icefractionalb.median():.2f}, "
-         f"max {near.icefractionalb.max():.2f}")  # fmt: skip
+near = near[(dt_min <= MAX_DT_MIN) & use[pick]]
+log.info(f"Low runs within {max(DIST_STEPS_KM):.0f} km with a usable ship window within "
+         f"{MAX_DT_MIN:.0f} min: {len(near)} (flights {sorted(near.flightno.unique())}); altitude "
+         f"{near.altradgps.min():.0f}-{near.altradgps.max():.0f} m")  # fmt: skip
 ii = near.ship_i.to_numpy()
 b_ow = ship_run(0.0, idx=ii)
 b_ice = ship_run(near.icefractionalb.to_numpy(), idx=ii)
+dist = near.dist_ship_km.to_numpy()
+# Same runs, bulk from the aircraft's own inputs (as part C): separates the effect of the
+# ship's location (different air and surface) from the bulk method itself.
+b_air = cs.ice_fluxes(
+    near.wsp.to_numpy(), near["T"].to_numpy() - 273.15, near.rhwater_BUCK.to_numpy(),
+    near.mslp.to_numpy(), near.sstOSTIA.to_numpy() - 273.15, near.icefractionalb.to_numpy(),
+    zu=near.altradgps.to_numpy(), zt=near.altradgps.to_numpy(), zq=near.altradgps.to_numpy(),
+    lat=near.lat.to_numpy(), jcool=0, coare=COARE,
+)  # fmt: skip
+rows_b = []
 for k, obs, unit, flag in FLUXES:
     q = (near[flag] <= QC_MAX).to_numpy()
     o = near[obs].to_numpy()
-    log.info(f"\n  {k} ({unit}) vs aircraft {obs} ({flag} <= {QC_MAX}):")
-    log.info(f"    ship open water        {fmt(stats(getattr(b_ow.blended, k)[q], o[q]), unit)}")
-    log.info(f"    ship + run ice frac.   {fmt(stats(getattr(b_ice.blended, k)[q], o[q]), unit)}")
-    for lo, hi in ((0, 10), (10, 25), (25, MAX_DIST_KM)):
-        m = q & (near.dist_ship_km >= lo).to_numpy() & (near.dist_ship_km < hi).to_numpy()
-        log.info(f"    {lo:>2.0f}-{hi:<2.0f} km (ice frac.)  "
-                 f"{fmt(stats(getattr(b_ice.blended, k)[m], o[m]), unit)}")  # fmt: skip
-    for lo, hi in ((0, 60), (60, MAX_ALT_B)):
-        m = q & (near.altradgps >= lo).to_numpy() & (near.altradgps < hi).to_numpy()
-        log.info(f"    {lo:>3.0f}-{hi:<3.0f} m alt. (ice f.) "
-                 f"{fmt(stats(getattr(b_ice.blended, k)[m], o[m]), unit)}")  # fmt: skip
+    log.info(f"\n  {k} ({unit}) vs aircraft {obs} ({flag} <= {QC_MAX}); ship bulk with the run's "
+             f"ice fraction (open water in brackets: bias)")  # fmt: skip
+    log.info("    cumulative distance:")
+    for dmax in DIST_STEPS_KM:
+        m = q & (dist <= dmax)
+        s_i = stats(getattr(b_ice.blended, k)[m], o[m])
+        s_o = stats(getattr(b_ow.blended, k)[m], o[m])
+        p = 4 if unit == "N m-2" else 1
+        rows_b.append(dict(flux=k, max_dist_km=dmax, **s_i, bias_open_water=s_o["bias"]))
+        log.info(f"      <= {dmax:3.0f} km  {fmt(s_i, unit)}  (ow {s_o['bias']:+.{p}f})")
+    log.info("    distance bands:")
+    for lo, hi in zip((0.0,) + DIST_STEPS_KM[:-1], DIST_STEPS_KM, strict=True):
+        m = q & (dist > lo) & (dist <= hi)
+        s_band = stats(getattr(b_ice.blended, k)[m], o[m])
+        log.info(f"      {lo:3.0f}-{hi:<3.0f} km {fmt(s_band, unit)}")
+    m0 = q & (dist <= MAX_DIST_KM)
+    log.info(f"    same runs <= {MAX_DIST_KM:.0f} km, aircraft-driven bulk "
+             f"{fmt(stats(getattr(b_air.blended, k)[m0], o[m0]), unit)}")  # fmt: skip
+    log.info(
+        f"    ship bulk - aircraft-driven bulk, <= {MAX_DIST_KM:.0f} km: median "
+        f"{np.nanmedian((getattr(b_ice.blended, k) - getattr(b_air.blended, k))[m0]):+.3g}"
+    )
     for f in sorted(near.flightno.unique()):
-        m = q & (near.flightno == f).to_numpy()
-        log.info(f"    flight {f} (ice frac.)  "
+        m = m0 & (near.flightno == f).to_numpy()
+        log.info(f"    flight {f}, <= {MAX_DIST_KM:.0f} km "
                  f"{fmt(stats(getattr(b_ice.blended, k)[m], o[m]), unit)}")  # fmt: skip
+pd.DataFrame(rows_b).to_csv(OUT_DIR / "data" / "igp_B_stats_by_distance.csv", index=False)
 log.info(
-    "\nCaveats: the aircraft was tens of km from the ship and sampled a different surface; "
-    "aircraft fluxes are at flight level; the ship temperature/humidity height is inferred."
+    "\nCaveats: the aircraft was km to tens of km from the ship and sampled a different "
+    "surface and time; aircraft fluxes are at flight level; few runs, mostly one flight."
 )
 out_b = near[["time", "flightno", "legno", "runno", "lat", "lon", "dist_ship_km", "altradgps",
               "icefractionalb", "windstress", "sh", "lh", "z0_flag", "z0T_flag",
@@ -293,21 +313,32 @@ out_b = near[["time", "flightno", "legno", "runno", "lat", "lon", "dist_ship_km"
 for k in ("tau", "hsb", "hlb"):
     out_b[f"ship_ow_{k}"] = getattr(b_ow.blended, k)
     out_b[f"ship_ice_{k}"] = getattr(b_ice.blended, k)
+    out_b[f"aircraft_bulk_{k}"] = getattr(b_air.blended, k)
 out_b.to_csv(OUT_DIR / "data" / "igp_B_aircraft_near_ship.csv", index=False)
 
-fig, axes = plt.subplots(1, 3, figsize=(11, 3.6))
+fig, axes = plt.subplots(2, 3, figsize=(12, 7), layout="constrained")
 for j, (k, obs, unit, flag) in enumerate(FLUXES):
-    ax = axes[j]
     q = (near[flag] <= QC_MAX).to_numpy()
-    sc = ax.scatter(near[obs][q], getattr(b_ice.blended, k)[q], c=near.icefractionalb[q],
-                    cmap=SIC_CMAP, vmin=0, vmax=1, s=18, edgecolors="k", linewidths=0.4,
-                    label="ship bulk, run ice fraction")  # fmt: skip
-    ax.scatter(near[obs][q], getattr(b_ow.blended, k)[q], marker="x", c="grey", s=12,
-               label="ship bulk, open water")  # fmt: skip
-    lim = np.nanpercentile(np.r_[near[obs][q], getattr(b_ow.blended, k)[q]], [0, 100])
+    o, b = near[obs].to_numpy(), getattr(b_ice.blended, k)
+    ax = axes[0, j]
+    m = q & (dist <= MAX_DIST_KM)
+    sc = ax.scatter(o[m], b[m], c=near.icefractionalb[m], cmap=SIC_CMAP, vmin=0, vmax=1, s=22,
+                    edgecolors="k", linewidths=0.4,
+                    label=f"runs <= {MAX_DIST_KM:.0f} km")  # fmt: skip
+    m2 = q & (dist > MAX_DIST_KM)
+    ax.scatter(o[m2], b[m2], c=near.icefractionalb[m2], cmap=SIC_CMAP, vmin=0, vmax=1, s=14,
+               marker="^", edgecolors="grey", linewidths=0.4,
+               label=f"runs {MAX_DIST_KM:.0f}-{max(DIST_STEPS_KM):.0f} km")  # fmt: skip
+    lim = np.nanpercentile(np.r_[o[q], b[q]], [0, 100])
     ax.plot(lim, lim, "r-", lw=1, label="1:1")
     ax.set(xlabel=f"aircraft {obs} ({unit})", ylabel=f"ship bulk {k} ({unit})")
     ax.legend(loc="lower right", frameon=False, fontsize=7)
+    ax = axes[1, j]
+    ax.scatter(dist[q], b[q] - o[q], c=near.icefractionalb[q], cmap=SIC_CMAP, vmin=0, vmax=1,
+               s=18, edgecolors="k", linewidths=0.4, label="ship bulk - aircraft")  # fmt: skip
+    ax.axhline(0, color="r", lw=0.8)
+    ax.set(xlabel="distance from ship (km)", ylabel=f"difference ({unit})")
+    ax.legend(loc="upper right", frameon=False, fontsize=7)
 fig.colorbar(sc, ax=axes, label="aircraft ice fraction", shrink=0.8)
 fig.savefig(OUT_DIR / "figures" / "igp_B_ship_bulk_vs_aircraft_near_ship.png", dpi=150,
             bbox_inches="tight")  # fmt: skip
@@ -380,10 +411,11 @@ plt.close(fig)
     "# IGP verification of coare-seaice: methods\n\n"
     + (__doc__ or "").split("Paths:")[0].strip()
     + f"\n\n## Settings used\n\n- coare-seaice {cs.__version__}, COARE {COARE}\n"
-    f"- ship heights zu = {ZU} m, zt = zq = {ZT} m (zt inferred, to confirm)\n"
+    f"- ship heights zu = {ZU} m, zt = zq = {ZT} m (zt from the ship team)\n"
     f"- ship cool skin {'on' if JCOOL_SHIP else 'off'}, radiation {RS_SHIP}/{RL_SHIP} W m-2 "
     "(none in the ship file)\n"
     f"- aircraft runs: radar altitude <= {MAX_ALT} m, over the sea, database flags <= {QC_MAX}\n"
-    f"- part B: within {MAX_DIST_KM} km of the ship, ship window within 10 min\n"
+    f"- part B: runs <= {MAX_ALT} m; distance steps {DIST_STEPS_KM} km (main "
+    f"{MAX_DIST_KM} km); ship window within {MAX_DT_MIN} min\n"
 )
 log.info(f"\nWrote figures, CSV tables and methods to {OUT_DIR}")

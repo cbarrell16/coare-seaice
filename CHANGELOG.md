@@ -15,6 +15,14 @@ project uses [semantic versioning](https://semver.org/).
   verification against the ship's stored COARE 3.0a fluxes and the aircraft eddy
   covariance. No change to the package.
 
+### Changed
+- IGP verification script: ship temperature/humidity height set to 8 m (the sensor
+  height, from Chris; was 20 m, inferred from the best fit). Against the stored COARE
+  3.0a fluxes, sensible heat is now +2.7 W m-2 and latent heat +1.5 W m-2 (median; were
+  -0.2 and -0.0). Part B now uses only runs at or below 60 m (was 150 m), reports the
+  results for cumulative distance limits of 10-200 km, and adds aircraft-driven bulk
+  fluxes for the same runs.
+
 ## [0.4.0] - unreleased (branch `release/0.4.0`)
 
 Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results of
