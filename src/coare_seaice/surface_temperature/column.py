@@ -5,6 +5,8 @@ Builds on a one-layer FTCS soil diffusion practical by Ian Renfrew.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 from scipy.linalg import solve_banded
 
@@ -141,6 +143,9 @@ class IceColumn:
             T = T_new
             if done:
                 break
+        else:
+            if np.all(np.isfinite(T)):
+                warnings.warn("IceColumn: steady profile did not converge", stacklevel=2)
         return T, F
 
     def steady_profile(self, Ts):

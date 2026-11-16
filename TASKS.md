@@ -27,6 +27,8 @@ Every task that touches equations, constants or results ends with a `physics-rev
 
 Each fix states in `CHANGELOG.md` how much results move on the reference fixture.
 
+**Status (16 Nov 2026):** F1-F10 done on branch `release/0.3.0` (one commit per task, one pull request for the release, as agreed for this release), with a physics review against the papers and its findings applied in a final commit. Result changes and their sizes are in `CHANGELOG.md`. Open for Chris: snow heat capacity (2106, no source) and fresh-ice conductivity (2.03 against 2.034 in Bitz & Lipscomb 1999) are left at the v2 values; default of `t_ice_fallback` left unchanged.
+
 | ID | Task | Tier | Depends | Where | Acceptance criteria |
 |---|---|---|---|---|---|
 | F1 | Replace the hard-coded stability clip with a named, documented limit and a QC flag based on bulk Richardson number (0.2, Grachev et al. 2007) | opus | P3 | cloud | Default results unchanged; flag set where the limit acts; test covers both sides. |

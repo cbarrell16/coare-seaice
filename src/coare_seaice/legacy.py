@@ -148,7 +148,10 @@ def coare35vn_ice(
                         value was missing and ``t_ice_fallback`` was used, or the
                         'diffusion' column was not running and the steady value was
                         used); ``missing_input`` (an input needed for the ice fluxes is
-                        NaN, so they are NaN). Empty without ice.
+                        NaN, so they are NaN). Empty without ice. The threshold flags
+                        (``qc_rib``, ``zeta_limited``, ``qc_rstar``) are False where
+                        the inputs are missing: read them together with
+                        ``missing_input`` (the fluxes are NaN there anyway).
 
     Missing data: NaN in gives NaN out for every output that depends on the input, and
     nothing is filled silently. ``t_ice_fallback`` is the one explicit fill; pass
@@ -348,6 +351,8 @@ def _ice_columns(
     elif t_ice_method == "seb_steady":
         T_ice, seb_res = solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)
     elif t_ice_method == "diffusion":
+        # Samples with a missing thickness or albedo get no T_ice (set after the run).
+        no_slab = ~(np.isfinite(h_ice) & np.isfinite(h_snow) & np.isfinite(albedo))
         if not v2_compat:
             varying = [
                 name
@@ -389,6 +394,9 @@ def _ice_columns(
         # NaN itself wherever an input it needs is missing.
         T_ice = np.where(np.isfinite(res["Ts"]), res["Ts"], T_ss)
         t_ice_filled = ~np.isfinite(res["Ts"]) & np.isfinite(T_ss)
+        if not v2_compat:  # the medians must not stand in for a missing value
+            T_ice = np.where(no_slab, np.nan, T_ice)
+            t_ice_filled &= ~no_slab
         seb_res = res["melt"]
         if v2_compat:
             # v2 back-calculated F_cond through an effective conductance, which is wrong
@@ -427,7 +435,7 @@ def _ice_columns(
     diag["t_ice_filled"] = t_ice_filled
     used = [u, t, rh, P, grav, A_ice, T_ice]
     if t_ice_method in ("seb_steady", "diffusion"):
-        used += [Rl, Rs, h_ice, h_snow, albedo]
+        used += [Rl, Rs, h_ice, h_snow, albedo]  # T_ice is NaN where a slab value was
     diag["missing_input"] = ~np.all([np.isfinite(x) for x in used], axis=0)
     cols = [
         fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],

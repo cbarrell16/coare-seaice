@@ -79,3 +79,19 @@ def test_diffusion_flags_samples_where_the_column_is_not_running():
 
 def test_albedo_is_nan_for_missing_snow_depth():
     np.testing.assert_array_equal(surface_albedo([0.0, 0.1, np.nan]), [0.65, 0.85, np.nan])
+
+
+@pytest.mark.parametrize("name", ["h_ice", "h_snow", "albedo"])
+def test_diffusion_does_not_fill_a_missing_slab_value_with_the_median(name):
+    # Found in the physics review of release 0.3.0.
+    d = {k: np.full(N, v) for k, v in BASE.items()}
+    d["albedo"] = np.full(N, 0.85)
+    d[name][2] = np.nan
+    args = [d.pop(k) for k in ("u", "t", "rh", "ts")]
+    A, diag = coare35vn_ice(*args, zu=10, zt=10, zq=10, t_ice_method="diffusion",
+                            time_s=600.0 * np.arange(N), verbose=False,
+                            return_diagnostics=True, **d)  # fmt: skip
+    for col in ("T_ice", "hsb_ice", "hsb_blend"):
+        assert np.isnan(A[2, COLS.index(col)])
+    assert np.isfinite(A[[0, 1, 3, 4], COLS.index("hsb_ice")]).all()
+    assert diag["missing_input"][2] and not diag["t_ice_filled"][2]

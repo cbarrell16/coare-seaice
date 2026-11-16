@@ -34,9 +34,10 @@ class SurfaceLayerOptions:
         device, not physics: where it acts the result is set by the limit, and the output
         ``zeta_limited`` is True. The default, 10, is the v2 value.
     rib_critical : samples with a bulk Richardson number above this are flagged
-        (``qc_rib``). Grachev et al. (2007) find Ri_B,cr ~ 0.2 at SHEBA and state that
-        their profile functions are valid for Ri_B < Ri_B,cr (text after their Eq. 8 and
-        Eq. 13); zeta ~ 10 corresponds on average to Ri_B ~ 0.2 there (their Fig. 3).
+        (``qc_rib``). Grachev et al. (2007) take Ri_B,cr ~ 0.2 as the critical value at
+        SHEBA (text after their Eq. 8) and state that their profile functions are valid
+        for Ri_B < Ri_B,cr (after their Eq. 13). They associate zeta = O(10) with
+        Ri_B ~ 0.2 on average, while noting the relation is not universal (their Fig. 3).
     viscosity : "coare" (default) uses the temperature-dependent kinematic viscosity of
         air (:func:`coare_seaice.thermo.air_viscosity`, at the air temperature) in the
         roughness Reynolds number R* = z0 u* / nu; "constant" uses the v2 value 1.5e-5.
@@ -53,15 +54,18 @@ class SurfaceLayerOptions:
             stable, ``windless``:     S = U + 0.5 sech(U)   (U, S in m s-1)    (Eq. 2.6)
 
         with beta_g = 1.25 and z_i = 600 m as in the paper (``beta_g``, ``zi``). The
-        regime is set by the sign of the surface-minus-air virtual potential temperature
-        difference. Stress is rho u*^2 = rho C_D S^2 (their Eq. 2.1a); COARE over water
-        instead scales the stress by U/S. With the default ``zeta_min`` of -10 the gust
-        term is throttled in near-calm air (at zu = 10 m and a 20 K unstable difference
-        the free-convection solution has zeta = -17); use ``zeta_min=-1000`` with it.
-        Convergence is slower in near-calm air: check ``not_converged`` or raise ``nits``.
-        Where a term is off (the default) the v2
-        treatment applies: a floor of 0.5 m s-1 on U. At neutral the two forms differ
-        (S = U + 0.5 sech(U) against S = U), as in the paper.
+        The stable form applies where the surface-minus-air virtual potential temperature
+        difference is negative; the gust form applies elsewhere once L < 0. At exact
+        neutral neither acts and the v2 floor applies. Stress over ice is
+        rho u*^2 = rho C_D S^2 (their Eq. 2.1a). COARE over water instead divides the
+        stress by the gust factor S/U, so with ``gustiness`` on the blended stress mixes
+        two conventions; the difference matters only in near-calm unstable air (at
+        U = 0.3 m s-1, ice stress 0.014 N m-2 against 0.002 with the COARE scaling).
+        With the default ``zeta_min`` of -10 the gust term is throttled in near-calm air
+        (at zu = 10 m and a 20 K unstable difference the free-convection solution has
+        zeta = -17); use ``zeta_min=-1000`` with it. Convergence is slower in near-calm
+        air: check ``not_converged`` or raise ``nits``. Where a term is off (the default)
+        the v2 treatment applies: a floor of 0.5 m s-1 on U.
     neutral_if_nan : v2 treated a NaN stability parameter (a missing input) as neutral, so
         some outputs stayed finite. Default False: NaN in gives NaN out.
     conv_tol : the output ``not_converged`` is True where the sensible or latent heat flux

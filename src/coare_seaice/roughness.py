@@ -55,7 +55,7 @@ def a87_scalar_roughness(z0_i, u_star_i, nu=NU_AIR_V2, guard=True):
 
     The rough-regime polynomial is fitted for 2.5 <= R* <= 1000. With ``guard`` (default)
     it is not extrapolated: for R* > 1000 the ratios z0T/z0 and z0q/z0 are held at their
-    R* = 1000 values (4.5e-6 and 5.1e-6). The returned R* is the actual value, so callers
+    R* = 1000 values (4.5e-6 and 8.0e-6). The returned R* is the actual value, so callers
     can flag R* > ``R_MAX``. ``guard=False`` extrapolates as v2 did.
     """
     R_star = np.maximum(z0_i * u_star_i / nu, 1e-6)

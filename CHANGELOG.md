@@ -43,7 +43,10 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   W m-2 and -0.26 K over the 31 cases below 3 m s-1). At 3 m s-1 and above the changes
   are at most 0.4 W m-2 and 0.1 K. The solver's `not_converged` flag bounds the change
   in the last iteration, not the remaining error (up to 0.3 W m-2 in near-calm tests).
-  New outputs of the solver: `usr` and the effective wind `S`.
+  New outputs of the solver: `usr` and the effective wind `S`. Stress over ice follows
+  Andreas et al. (2010) Eq. 2.1a (rho u*^2 from the effective wind); COARE over water
+  divides the stress by the gust factor, so with `gustiness` on the blended stress
+  mixes two conventions in near-calm unstable air.
 - **F6.** Convergence diagnostics for the ice surface-layer iteration: `iter_dH` and
   `iter_dLE` (change in the ice heat fluxes in the last of the 10 iterations, W m-2)
   and the flag `not_converged` (either above `SurfaceLayerOptions.conv_tol`, default
@@ -101,6 +104,10 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   New diagnostics `t_ice_filled` (T_ice does not come from the requested method,
   including the `t_ice_fallback` of `prescribed`) and `missing_input`. The default of
   `t_ice_fallback` is unchanged (`seb_steady`); pass `None` for no fill.
+  In `diffusion`, a sample with a missing thickness or albedo gets NaN ice outputs
+  (the series median is used for the slab, but not to fill that sample).
+  The threshold flags (`qc_rib`, `zeta_limited`, `qc_rstar`) are False where inputs are
+  missing; read them with `missing_input`.
   **No change on the reference fixture** (all ten runs identical).
 - **F9.** Constants and citations. Fresh-ice heat capacity is 2110 J kg-1 K-1 (Bitz &
   Lipscomb 1999, Eq. 1) in place of 2106. The conductivity formula is cited to
@@ -108,8 +115,9 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   form-drag term is cited as Lupkes et al. (2012) Eq. 51 (their Eq. 22 is the total
   drag). Reference fixture, `diffusion` run: T_ice changes by at most 6e-7 K and the
   fluxes by at most 5e-6 W m-2. All other methods are unchanged (the heat capacity is
-  used only by the column model). The snow heat capacity stays at the v2 value 2106,
-  which has no stated source.
+  used only by the column model). Two values are left as in v2 and need a decision:
+  the snow heat capacity 2106 (no stated source) and the fresh-ice conductivity 2.03
+  (Bitz & Lipscomb give 2.034).
 
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 

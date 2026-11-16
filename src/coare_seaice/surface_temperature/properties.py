@@ -11,7 +11,7 @@ used here.
 """
 
 K_ICE_FRESH = 2.03  # W m-1 K-1, conductivity of fresh ice, k0 (Untersteiner 1964, via
-#                     Bitz & Lipscomb 1999)
+#                     Bitz & Lipscomb 1999, who give 2.034; the v2 value 2.03 is kept)
 BETA_K = 0.117  # W m-1 ppt-1, salinity term beta (Untersteiner 1964, via Bitz & Lipscomb 1999)
 K_SNOW = 0.31  # W m-1 K-1, snow conductivity (Bitz & Lipscomb 1999; CICE default 0.30)
 RHO_ICE = 917.0  # kg m-3
