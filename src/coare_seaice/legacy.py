@@ -21,6 +21,8 @@ Columns (heat fluxes positive upward):
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 from . import thermo
@@ -120,7 +122,10 @@ def coare35vn_ice(
                         'seb_steady' (default) | 'diffusion'
         t_ice           prescribed T_ice (C); giving it selects 'prescribed'; NaNs are
                         filled by t_ice_fallback
-        h_ice, h_snow   ice and snow thickness (m), scalar or array (SEB methods)
+        h_ice, h_snow   ice and snow thickness (m), scalar or array (SEB methods). For
+                        'diffusion' the column is one slab of fixed thickness: arrays
+                        (and an albedo array) are replaced by their medians everywhere in
+                        that method, with a warning
         k_snow          snow conductivity (W m-1 K-1)
         albedo          surface albedo (default 0.85 if h_snow > 2 cm else 0.65)
         t_base          ice-base temperature (C)
@@ -329,17 +334,34 @@ def _ice_columns(
     elif t_ice_method == "seb_steady":
         T_ice, seb_res = solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)
     elif t_ice_method == "diffusion":
+        if not v2_compat:
+            varying = [
+                name
+                for name, x in (("h_ice", h_ice), ("h_snow", h_snow), ("albedo", albedo))
+                if np.nanmax(x) - np.nanmin(x) > 1e-9
+            ]
+            if varying:
+                warnings.warn(
+                    f"t_ice_method='diffusion' models one slab: {', '.join(varying)} "
+                    "vary along the series and are replaced by their medians",
+                    stacklevel=3,
+                )
+            h_ice = np.full(N, np.nanmedian(h_ice))
+            h_snow = np.full(N, np.nanmedian(h_snow))
+            albedo = np.full(N, np.nanmedian(albedo))
+            G = effective_conductance(h_ice, h_snow, K_ICE_FRESH, k_snow)
         T_ss, _ = solve_seb_steady(args, Rl, Rs, albedo, G, t_base, t)
         fl_ss = ice_surface_layer(t_ice=T_ss, **args)  # conductances at steady state
         dk = dict(diffusion_kwargs or {})
         run_kw = {k: dk.pop(k) for k in ("sic_reset", "max_gap_s") if k in dk}
-        # AUDIT F5: array h_ice / h_snow are reduced to their medians for the column
-        # (behaviour to be decided in task F5).
+        # One column is one slab of fixed thickness. Thickness arrays are reduced to their
+        # medians (see the docstring); v2 did that for the column but not for T_ss above.
         col = IceColumn(
             h_ice=float(np.nanmedian(h_ice)),
             h_snow=float(np.nanmedian(h_snow)),
             t_base=t_base,
             k_snow=k_snow,
+            v2_compat=v2_compat,
             **dk,
         )
         theta_a = t + thermo.LAPSE_DRY * zt

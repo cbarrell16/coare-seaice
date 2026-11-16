@@ -48,6 +48,19 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   Reference fixture, `diffusion` run: 7 of 300 cases change, all with T_ice above
   -1.8 C; the largest |F_cond| falls from 1.1e8 to 176 W m-2. Fluxes and T_ice are
   unchanged, and so are all other methods.
+- **F5.** Column model (`IceColumn`, `t_ice_method="diffusion"`), three changes.
+  (1) The initial "steady" profile is now the steady state of the column's own layers
+  and salinity-dependent conductivity; v2 used fresh-ice conductivity, a 2.6 %
+  conductance mismatch that made the profile drift after every (re)initialisation. The
+  conductive flux reported at (re)initialisation is the same steady flux, with the
+  column's own snow conductivity. (2) The melt flux is reset at each Picard pass (no
+  case where this mattered was found in 20 000 random steps). (3) **Decision on
+  thickness arrays:** one column is one slab, so `h_ice`, `h_snow` and `albedo` arrays
+  are replaced by their medians everywhere in the `diffusion` method, with a warning;
+  v2 used the arrays for the initial state and the medians for the column.
+  Reference fixture, `diffusion` run (constant thickness): T_ice changes by at most
+  0.04 K (mean -0.008 K), ice sensible heat by at most 0.35 W m-2 (mean -0.10),
+  `F_cond` by at most 0.51 W m-2 (mean -0.21). Other methods are unchanged.
 
 ## [0.2.0] - 16 Nov 2026 (not tagged)
 
