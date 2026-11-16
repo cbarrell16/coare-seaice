@@ -146,8 +146,8 @@ def psim_sheba(zeta):
     Grachev et al. give stable functions only. They are fitted to SHEBA data and stated
     to be valid for a bulk Richardson number below about 0.2. Compared with COARE's
     functions: psi_h is less negative at all zeta > 0 (-10 against -30 at zeta = 10), so
-    scalar transfer is stronger; psi_m is slightly less negative below zeta of about 3,
-    more negative from there to about 60 (-22 against -18 at zeta = 10), and less
+    scalar transfer is stronger; psi_m is slightly less negative below zeta of about 2.7,
+    more negative from there to about 67 (-22 against -18 at zeta = 10), and less
     negative beyond.
     """
     return _stable_or_coare(zeta, _psim_sheba_stable, psiu_26)

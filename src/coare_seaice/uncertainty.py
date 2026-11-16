@@ -59,7 +59,8 @@ def log_uniform(low, high):
 @dataclass
 class EnsembleResult:
     """``central`` is the unperturbed FluxResult; ``percentiles[name]`` has shape
-    (len(levels), N); ``members[name]`` has shape (n, N) if members were kept."""
+    (len(levels), N); ``members[name]`` has shape (n, N) if members were kept;
+    ``n_valid[name]`` (shape N) counts the members that gave a finite value."""
 
     central: object
     levels: tuple
@@ -67,6 +68,7 @@ class EnsembleResult:
     members: dict | None
     n: int
     seed: int
+    n_valid: dict | None = None
 
 
 def _get(result, path):
@@ -84,13 +86,15 @@ def ensemble(inputs, perturbations, n=100, seed=0, levels=(5, 50, 95),
     perturbations : dict of name -> perturbation (see :func:`normal`, :func:`uniform`,
         :func:`log_uniform`), where name is an input or a keyword setting such as
         ``z0_ice``, ``lw_down`` or ``zu``. A perturbed ``sic`` is limited to 0-1 and a
-        perturbed ``rh`` to be non-negative; nothing else is limited.
+        perturbed ``rh`` and ``u`` to be non-negative, and perturbed heights to at least
+    0.1 m; nothing else is limited.
     n, seed : ensemble size and random seed; the same seed gives the same result.
     levels : percentiles to return. outputs : dotted names in the result, for example
         "blended.hsb" or "tiles.thick_ice.t_surface".
     Other keywords go to ``ice_fluxes`` unchanged.
 
-    NaN members are ignored in the percentiles (a sample is NaN only if every member is).
+    NaN members are ignored in the percentiles (a sample is NaN only if every member
+    is); ``n_valid`` reports how many members each percentile is based on.
     """
     order = ("u", "t", "rh", "p", "sst", "sic")
     missing = [k for k in order if k not in inputs]
@@ -109,11 +113,17 @@ def ensemble(inputs, perturbations, n=100, seed=0, levels=(5, 50, 95),
             target[name] = draw(rng, target[name])
         inp["sic"] = np.clip(inp["sic"], 0.0, 1.0)
         inp["rh"] = np.maximum(inp["rh"], 0.0)
+        inp["u"] = np.maximum(inp["u"], 0.0)  # a speed, not a component
+        for z in ("zu", "zt", "zq"):
+            if z in perturbations:
+                kw[z] = np.maximum(kw[z], 0.1)
         member = ice_fluxes(*(inp[k] for k in order), **kw)
         for name in outputs:
             stack[name][i] = _get(member, name)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=RuntimeWarning)  # all-NaN samples
         pct = {name: np.nanpercentile(v, levels, axis=0) for name, v in stack.items()}
+    n_valid = {name: np.isfinite(v).sum(axis=0) for name, v in stack.items()}
     return EnsembleResult(central=central, levels=tuple(levels), percentiles=pct,
-                          members=stack if keep_members else None, n=n, seed=seed)  # fmt: skip
+                          members=stack if keep_members else None, n=n, seed=seed,
+                          n_valid=n_valid)  # fmt: skip

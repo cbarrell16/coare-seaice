@@ -74,6 +74,21 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   outputs. Reproducible with a seed; zero perturbation returns the central value
   (both tested). It measures input uncertainty only, not errors of the method.
 
+### Physics review (applied in the last commit of the release)
+Reviewed against the papers; no equation, constant or table value was found wrong, and
+`legacy.coare35vn_ice` is bit-identical to 0.3.0 (400 random cases, NaN pattern
+included). Fixed: the anchored water tile no longer takes the ice tiles' stability
+functions or light-wind terms; a NaN blended flux is always flagged `missing_input`
+(for example the cool-skin correction without radiation); NaN thin fractions are
+rejected; the humidity flag respects `rh_reference="ice"` and is not set above 0 C;
+the ensemble reports how many members each percentile rests on and keeps wind speed
+non-negative. Docstrings corrected (single-temperature blending is not the full
+Elvidge et al. 2021 scheme: tiles keep their own surface humidity and latent heat;
+SHEBA/COARE crossing points; the Andreas et al. 2010 plateau) and caveats added (thin
+ice counted at MIZ floe freeboard in the form drag; Srivastava et al. drag values may
+include form drag). Not checked: the Andreas et al. (2002) paper behind the humidity
+flag, which is not in the project.
+
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 
 Audit fixes F1-F10. "Reference fixture" below means the 300 synthetic polar cases in

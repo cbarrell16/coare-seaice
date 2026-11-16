@@ -80,6 +80,8 @@ class Tile:
             raise ValueError("Tile: scalar_scheme='prescribed' needs z0t and z0q")
         if self.kind == "water" and (self.z0 is None) != (self.z0t is None):
             raise ValueError("a water tile with prescribed roughness needs z0, z0t and z0q")
+        if self.kind == "water" and (isinstance(self.z0, str) or callable(self.z0)):
+            raise ValueError("a water tile's z0 must be a number or an array (m)")
 
     def with_(self, **changes):
         """A copy with some settings changed."""
@@ -115,7 +117,9 @@ def three_tile(thin_fraction, of="water", thin=None, water=None, **thick):
         water (1 - f)(1 - sic), thin ice f (1 - sic), thick ice sic, and the thin ice
         adds no floe-edge form drag. "ice": thin ice is that share of the ice
         concentration: water 1 - sic, thin ice f sic, thick ice (1 - f) sic, and it
-        counts for form drag.
+        counts for form drag. Caveat: the form drag (Lupkes et al. 2012 via Elvidge et
+        al. 2016) then treats thin ice as floes with the freeboard of the MIZ
+        parametrisation (about 0.3 to 0.5 m), far above that of 0.1 m ice.
     thin : dict of settings for the thin-ice tile. Provisional defaults: 0.1 m of bare
         ice (h_ice=0.1, h_snow=0.0). Its surface temperature method is the ``t_ice``
         argument of :func:`coare_seaice.ice_fluxes` unless set here; an energy-balance
@@ -127,7 +131,7 @@ def three_tile(thin_fraction, of="water", thin=None, water=None, **thick):
     if of not in ("water", "ice"):
         raise ValueError("three_tile: of must be 'water' or 'ice'")
     f = np.asarray(thin_fraction, dtype=float)
-    if np.any((f < 0) | (f > 1)):
+    if np.any(~np.isfinite(f)) or np.any((f < 0) | (f > 1)):
         raise ValueError("three_tile: thin_fraction must be between 0 and 1")
     thin_kw = dict(h_ice=0.1, h_snow=0.0)
     thin_kw.update(thin or {})

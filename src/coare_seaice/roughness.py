@@ -96,7 +96,8 @@ def z0_andreas2010_winter(u_star, nu):
 
     Fitted by eye to SHEBA winter data (their Fig. 2), so SHEBA is not independent
     evidence for it. The first term is aerodynamically smooth flow; z0 levels off at
-    2.3e-4 m (C_DN10 = 1.4e-3) for u* above about 0.2 m s-1.
+    2.3e-4 m (C_DN10 = 1.4e-3) for u* above about 0.15 m s-1 (their p. 94); their data
+    reach u* of about 0.65 m s-1.
     """
     u_star = np.maximum(np.asarray(u_star, dtype=float), 1e-4)
     return 0.135 * nu / u_star + 2.30e-4 * np.tanh(13.0 * u_star) ** 3
@@ -104,6 +105,10 @@ def z0_andreas2010_winter(u_star, nu):
 
 # Published neutral 10 m drag coefficients over (nearly) complete ice cover, by name.
 # cdn10 is the median (or the stated setting); iqr the interquartile range where given.
+# Caveat: the Srivastava et al. values are total drag over "complete" cover, defined in
+# that table as an ice fraction of 0.8-1, 0.9-1 or 1 depending on the study, so they
+# include some form drag. Used as z0_ice with an ice fraction below 1, the Lupkes form
+# drag added on top may count part of it twice.
 _S22 = "Srivastava et al. (2022, ACP discussion paper acp-2021-705), Table 2"
 _R19 = "Renfrew et al. (2019), Table 1"
 ICE_ROUGHNESS = {

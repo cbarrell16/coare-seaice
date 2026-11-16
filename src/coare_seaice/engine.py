@@ -7,7 +7,7 @@ momentum flux; fluxes are blended by area fraction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -23,9 +23,10 @@ from .tiles import tile_fractions
 
 NITS = 10  # iterations of the ice surface-layer loop
 LIGHT_WIND = 1.0  # m s-1; Grachev et al. (2007) excluded winds of 1 m s-1 and below
-# Humidity check over ice (after Andreas et al. 2002, who found near-surface air over
-# polar sea ice always near ice saturation). The thresholds are choices of this package,
-# not values from that paper, which was not available to check.
+# Humidity check over ice, after Andreas et al. (2002, J. Geophys. Res. 107, 8033: "Near-
+# surface water vapor over polar sea ice is always near ice saturation"; citation from
+# the reference list of Andreas et al. 2010, QJRMS). The paper itself was not available
+# to check, and the thresholds are choices of this package, not values from it.
 RH_ICE_RANGE = (80.0, 105.0)  # % relative to ice; outside this the sample is flagged
 RH_ICE_MIN_SIC = 0.9  # only where the ice concentration is at least this
 BLEND_MODES = ("flux", "single_temperature")
@@ -93,7 +94,10 @@ def _water_tile(tile, fraction, ow, F, sst):
         F.t + thermo.LAPSE_DRY * F.zt, t_skin, ow.q_air, q_skin, F.u, F.zu,
         F.t + thermo.TDK, thermo.gravity(F.lat),
     )  # fmt: skip
-    missing = ~np.all([np.isfinite(x) for x in (F.u, F.t, F.rh, F.p, F.lat, sst)], axis=0)
+    used = [F.u, F.t, F.rh, F.p, F.lat, sst]
+    if ow.jcool:  # the cool-skin correction needs the radiation
+        used += [F.lw_down, F.sw_down]
+    missing = ~np.all([np.isfinite(x) for x in used], axis=0)
     return TileResult(
         name=tile.name, kind="water", fraction=fraction, tau=ow.tau, hsb=ow.hsb, hlb=ow.hlb,
         usr=ow.usr, t_surface=t_skin, q_surface=q_skin, z0=ow.zo, z0t=ow.zot, z0q=ow.zoq,
@@ -105,13 +109,19 @@ def _water_tile(tile, fraction, ow, F, sst):
 
 
 def _prescribed_water_tile(tile, fraction, F, ow, sst, options):
-    """A water tile with given roughness lengths (no COARE, no cool skin)."""
+    """A water tile with given roughness lengths (no COARE, no cool skin).
+
+    It uses COARE's stability functions and no light-wind terms, whatever the ice tiles
+    use; the stability limits and flag thresholds are those of ``options``. Surface
+    humidity is 0.98 x saturation over water, also for COARE 3.6 with a salinity.
+    """
     n = F.n
+    water_options = replace(options, stability="coare", gustiness=False, windless=False)
     fl = ice_surface_layer(
         u=F.u, t=F.t, Q_air=ow.q_air, t_ice=sst, z0_ice=_per_sample(tile.z0, n), P=F.p,
         grav=thermo.gravity(F.lat), zu=F.zu, zt=F.zt, zq=F.zq, rhoa=ow.rhoa, cpa=thermo.CPA,
         von=thermo.VON, fdg=thermo.FDG, ta=F.t + thermo.TDK, ice_scheme="prescribed",
-        scalar_ratio=1.0, nits=NITS, options=options, z0T=tile.z0t, z0q=tile.z0q,
+        scalar_ratio=1.0, nits=NITS, options=water_options, z0T=tile.z0t, z0q=tile.z0q,
         surface="water",
     )  # fmt: skip
     u10n = fl["usr"] / thermo.VON * np.log(10.0 / fl["z0"])
@@ -214,17 +224,19 @@ def compute(
     fluxes are averaged by area (a mosaic).
 
     blend="single_temperature": every tile is solved with one aggregate surface
-    temperature, so the tiles differ only in roughness, surface humidity (saturation
-    over ice or water at that temperature) and latent heat. In neutral conditions the
-    area-mean heat flux is then the area mean of the tiles' neutral transfer
-    coefficients times one temperature difference, which is the blending of
-    Elvidge et al. (2021, Eq. 12), here at the measurement height. Each tile keeps its
-    own stability correction. The aggregate temperature is ``t_surface`` (deg C, for
-    example from a radiometer); if None it is the area mean of the tile temperatures
-    from a first pass in flux mode (as Andreas et al. 2010, Eq. 6.4). The open-water
-    tile is run with that temperature in place of the SST and without the cool-skin
-    correction, even when it is below the freezing point of sea water. Ice tiles cap
-    the surface at 0 C, so above 0 C the temperature is no longer single.
+    temperature. The tiles still differ in roughness, in surface humidity (0.98 x
+    saturation over water for the water tile, saturation over ice for ice tiles, at that
+    temperature; at -16.5 C the water value is about 15 % higher), in latent heat, in
+    stability correction, and over water in COARE's gustiness and its stress convention.
+    For sensible heat in neutral conditions the area-mean flux is the area mean of the
+    tiles' neutral transfer coefficients times one temperature difference, the blending
+    of Elvidge et al. (2021, Eq. 12; there at 10 m, here at the measurement height).
+    Their offline fluxes also use one surface humidity and one latent heat, which this
+    mode does not. The aggregate temperature is ``t_surface`` (deg C, for example from a
+    radiometer); if None it is the area mean of the tile temperatures from a first pass
+    in flux mode (as Andreas et al. 2010, Eq. 6.4). The open-water tile is run at that
+    temperature in place of the SST and without the cool-skin correction, even below the
+    freezing point of sea water. Ice tiles cap the surface at 0 C.
     """
     if blend not in BLEND_MODES:
         raise ValueError(f"blend must be one of {BLEND_MODES}")
@@ -287,23 +299,31 @@ def compute(
     )  # fmt: skip
     meta = dict(blend=blend, coare=coare, tiles=",".join(t.name for t in tiles),
                 rh_reference=rh_reference, options=options)  # fmt: skip
-    return FluxResult(blended=blended, tiles=results, qc=_quality_flags(F, results), meta=meta)
+    qc = _quality_flags(F, results, rh_reference)
+    # whatever the cause, a NaN blended flux is flagged as missing input
+    qc["missing_input"] |= ~(np.isfinite(blended.tau) & np.isfinite(blended.hsb)
+                             & np.isfinite(blended.hlb))  # fmt: skip
+    return FluxResult(blended=blended, tiles=results, qc=qc, meta=meta)
 
 
 def relative_humidity_over_ice(t, p, rh):
     """Relative humidity with respect to ice (%) from that with respect to water (%).
 
     Below 0 C saturation over ice is lower than over water, so the value is higher:
-    100 % over ice is about 91 % over water at -10 C and 82 % at -20 C.
+    100 % over ice is about 91 % over water at -10 C and 82 % at -20 C. Above 0 C there
+    is no saturation over ice at the air temperature, so the result is NaN (and the
+    humidity flag is not set).
     """
+    t = np.asarray(t, dtype=float)
     with np.errstate(invalid="ignore", divide="ignore"):
-        return rh * thermo.esat_water(t, p) / thermo.esat_ice(np.minimum(t, 0.0), p)
+        out = rh * thermo.esat_water(t, p) / thermo.esat_ice(np.minimum(t, 0.0), p)
+    return np.where(t > 0.0, np.nan, out)
 
 
-def _quality_flags(F, results):
+def _quality_flags(F, results, rh_reference="water"):
     """Flags for the blended result: a tile counts where its area fraction is not zero."""
     n = F.n
-    rh_ice = relative_humidity_over_ice(F.t, F.p, F.rh)
+    rh_ice = F.rh if rh_reference == "ice" else relative_humidity_over_ice(F.t, F.p, F.rh)
 
     def any_tile(flag=None, test=None, kind=None):
         out = np.zeros(n, dtype=bool)
