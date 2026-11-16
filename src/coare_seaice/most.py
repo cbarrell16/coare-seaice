@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .roughness import NU_AIR_V2, R_MAX, a87_scalar_roughness
-from .stability import psit_26, psiu_26
+from .stability import STABILITY_FUNCTIONS
 from .thermo import LAPSE_DRY, LS_ICE, TDK, air_viscosity, qsat_ice
 
 ZETA_MAX_DEFAULT = 10.0  # limit on |zeta| = |zu / L| in the iteration (the v2 value)
@@ -45,6 +45,10 @@ class SurfaceLayerOptions:
         extrapolated beyond R* = 1000 (see
         :func:`coare_seaice.roughness.a87_scalar_roughness`); the output ``qc_rstar`` is
         True where R* > 1000.
+    stability : "coare" (default; the COARE 3.5 functions) or "sheba": the functions of
+        Grachev et al. (2007, Eqs. 12 and 13) in stable conditions, with COARE's in
+        unstable conditions. The SHEBA functions are fitted to SHEBA data, so SHEBA is
+        not independent evidence for them.
     gustiness, windless : light-wind terms of Andreas et al. (2010, Q. J. R. Meteorol.
         Soc. 136, 927-943), both off by default. They replace the measured wind U at zu
         by an effective wind S in the flux and profile equations (their Eq. 2.1, 2.2):
@@ -79,6 +83,7 @@ class SurfaceLayerOptions:
     a87_guard: bool = True
     conv_tol: float = 0.1
     neutral_if_nan: bool = False
+    stability: str = "coare"
     gustiness: bool = False
     windless: bool = False
     beta_g: float = 1.25
@@ -87,6 +92,8 @@ class SurfaceLayerOptions:
     def __post_init__(self):
         if self.viscosity not in ("coare", "constant"):
             raise ValueError("viscosity must be 'coare' or 'constant'")
+        if self.stability not in STABILITY_FUNCTIONS:
+            raise ValueError(f"stability must be one of {sorted(STABILITY_FUNCTIONS)}")
 
 
 DEFAULT_OPTIONS = SurfaceLayerOptions()
@@ -178,6 +185,7 @@ def ice_surface_layer(
     L_i = np.full(N, 1e6)
 
     nu = air_viscosity(ta - TDK) if options.viscosity == "coare" else NU_AIR_V2
+    psiu_26, psit_26 = STABILITY_FUNCTIONS[options.stability]
 
     def scalar_rough(usr):
         if ice_scheme == "blended_a87":

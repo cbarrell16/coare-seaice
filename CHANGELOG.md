@@ -41,6 +41,14 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   Radiation inputs have no default value: whatever needs them is NaN if they are
   missing. `legacy.coare35vn_ice` is now a thin wrapper around `ice_fluxes`; all ten
   fixture runs are identical to before, and the tests against v2 still pass.
+- **T6.** SHEBA stability functions (Grachev et al. 2007, Eqs. 9, 12 and 13) as an
+  option for the ice tiles: `ice_fluxes(..., stability="sheba")`. Stable side only;
+  the unstable side and open water keep COARE's functions. The integrated forms are
+  tested against the gradient forms numerically. Default unchanged. With the option on,
+  on the reference fixture (36/22/22 m): `air_freezing` ice sensible heat changes by
+  -0.09 W m-2 on average over stable cases (at most 3.3 W m-2); with the energy-balance
+  method by -0.64 W m-2 on average (at most 7.8 W m-2), and T_ice by up to 2.2 K. The
+  stability limit acts slightly more often with them (17 against 9 of 300 cases).
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 

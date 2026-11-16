@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from .engine import Forcing, compute
+from .most import DEFAULT_OPTIONS
 from .surface_temperature.methods import Prescribed, method_from_name
 from .tiles import two_tile
 
@@ -39,6 +42,7 @@ def ice_fluxes(
     tiles=None,
     t_ice=None,
     z0_ice=None,
+    stability=None,
     blend="flux",
     t_surface=None,
     options=None,
@@ -79,6 +83,9 @@ def ice_fluxes(
     z0_ice : momentum roughness (m) for ice tiles that do not set their own; default
         5e-4 m. Ice roughness is regional and rarely measured: treat it as an input with
         an uncertainty range.
+    stability : "coare" or "sheba" (Grachev et al. 2007, stable side) for the ice tiles;
+        shorthand for ``options=SurfaceLayerOptions(stability=...)``. Open water always
+        uses COARE's functions.
     blend : "flux" (default) or "single_temperature"; see
         :func:`coare_seaice.engine.compute`. ``t_surface`` is the aggregate surface
         temperature for the latter.
@@ -113,6 +120,8 @@ def ice_fluxes(
                 for k, v in dict(rain=rain, cp=cp, sigH=sigH, time=time).items()}  # fmt: skip
     F = Forcing(u=u, **a, **optional, jcool=0 if jcool == 0 else 1, salinity=salinity)
 
+    if stability is not None:
+        options = replace(options or DEFAULT_OPTIONS, stability=stability)
     if isinstance(t_ice, str):
         t_ice = method_from_name(t_ice)
     elif t_ice is not None and not hasattr(t_ice, "solve"):
