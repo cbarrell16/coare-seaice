@@ -4,7 +4,25 @@ All changes that alter results are recorded here, with their size.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project uses [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0] - unreleased (branch `release/0.3.0`)
+
+Audit fixes F1-F10. "Reference fixture" below means the 300 synthetic polar cases in
+`tests/fixtures/v2_reference` (heights 36/22/22 m); changes are new minus old. Sizes on
+the IGP and ACCACIA aircraft data will be added when the reader exists (task V2).
+
+### Added
+- **F1.** The limit on the stability parameter in the ice surface-layer iteration is now
+  a named, documented option (`most.SurfaceLayerOptions.zeta_max`, default 10 as in v2)
+  in place of a hard-coded number. New diagnostics for the ice fraction: `zeta`, the
+  bulk Richardson number `Rib` (Grachev et al. 2007, Eq. 8) and two flags:
+  `zeta_limited` (the limit acted, so the result is set by it) and `qc_rib`
+  (`Rib` > 0.2, outside the validated range of the stability functions).
+  `legacy.coare35vn_ice(..., return_diagnostics=True)` returns them.
+  **No change in results.** On the reference fixture the flags are set in 3.0 %
+  (`zeta_limited`) and 5.3 % (`qc_rib`) of cases with `air_freezing`, and 14.0 % and
+  12.3 % with `seb_steady`.
+
+## [0.2.0] - 16 Nov 2026 (not tagged)
 
 ### Added
 - Repository layout, packaging, continuous integration, conventions (`CLAUDE.md`),

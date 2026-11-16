@@ -25,7 +25,7 @@ import numpy as np
 
 from . import thermo
 from .form_drag import lupkes_form_drag
-from .most import ice_surface_layer
+from .most import DEFAULT_OPTIONS, ice_surface_layer
 from .openwater import open_water
 from .roughness import ICE_Z0_DEFAULT, SCALAR_RATIO
 from .surface_temperature import simple
@@ -104,6 +104,8 @@ def coare35vn_ice(
     diffusion_kwargs=None,
     rh_reference="water",
     verbose=True,
+    surface_layer_options=None,
+    return_diagnostics=False,
 ):
     """COARE 3.5 with the sea-ice extension, v2 interface. Returns an (N, 56) array.
 
@@ -126,6 +128,14 @@ def coare35vn_ice(
         diffusion_kwargs  passed to IceColumn (and 'sic_reset', 'max_gap_s' to its run())
         rh_reference    'water' (default) or 'ice' (v1: RH taken as relative to ice)
         z0_ice, ice_scheme ('blended_a87' | 'simple' | 'open_ocean'), scalar_ratio
+
+    Additions to the v2 interface (keyword only in practice):
+        surface_layer_options  a :class:`coare_seaice.most.SurfaceLayerOptions`
+                        (stability limit and flag threshold); default as v2
+        return_diagnostics  if True, return ``(array, diagnostics)``; ``diagnostics`` is a
+                        dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``
+                        and the flags ``zeta_limited`` and ``qc_rib`` (see
+                        :func:`coare_seaice.most.ice_surface_layer`). Empty without ice.
     """
     # ---- open-water inputs -------------------------------------------------------------
     u, t, rh, ts = _as_float(u), _as_float(t), _as_float(rh), _as_float(ts)
@@ -191,9 +201,10 @@ def coare35vn_ice(
     ow_tq = open_water(u, t, rh, ts, zrf=ZRF_TQ, **ow_kw)
     out_ow = _open_water_columns(ow_u, ow_tq, rain is not None)
     if not ice_active:
-        return np.column_stack(out_ow)
+        out = np.column_stack(out_ow)
+        return (out, {}) if return_diagnostics else out
 
-    out_ice = _ice_columns(
+    out_ice, diag = _ice_columns(
         u=u, t=t, rh=rh, P=P, Rs=Rs, Rl=Rl, grav=thermo.gravity(lat),
         zu=zu_a, zt=zt_a, zq=zq_a, q_air=ow_u.q_air, rhoa=ow_u.rhoa,
         zo_w=ow_u.zo, u10n_w=ow_u.u_n_rf, tau_w=ow_u.tau, hsb_w=ow_u.hsb, hlb_w=ow_u.hlb,
@@ -202,8 +213,10 @@ def coare35vn_ice(
         h_ice=h_ice_v, h_snow=h_snow_v, k_snow=k_snow, albedo=alb_v, t_base=t_base,
         t_ice_offset=t_ice_offset, time_s=time_s, diffusion_kwargs=diffusion_kwargs,
         rh_reference=rh_reference, verbose=verbose,
+        options=surface_layer_options or DEFAULT_OPTIONS,
     )  # fmt: skip
-    return np.column_stack(out_ow + out_ice)
+    out = np.column_stack(out_ow + out_ice)
+    return (out, diag) if return_diagnostics else out
 
 
 def _open_water_columns(ow_u, ow_tq, rain_given):
@@ -260,11 +273,13 @@ def _ice_columns(
     diffusion_kwargs,
     rh_reference,
     verbose,
+    options=DEFAULT_OPTIONS,
 ):
     """The 18 v2 ice columns (38-55), given the open-water quantities they depend on.
 
     zo_w and u10n_w are the open-water roughness and 10 m neutral wind (form drag);
     tau_w, hsb_w, hlb_w the open-water fluxes (blending). All arrays have length N.
+    Returns (columns, diagnostics).
     """
     N = u.size
     # Air humidity over the ice fraction (kg/kg)
@@ -278,7 +293,7 @@ def _ice_columns(
     args = dict(
         u=u, t=t, Q_air=Q_ice_air, z0_ice=z0_ice, P=P, grav=grav, zu=zu, zt=zt, zq=zq,
         rhoa=rhoa, cpa=thermo.CPA, von=thermo.VON, fdg=thermo.FDG, ta=t + thermo.TDK,
-        ice_scheme=ice_scheme, scalar_ratio=scalar_ratio, nits=NITS,
+        ice_scheme=ice_scheme, scalar_ratio=scalar_ratio, nits=NITS, options=options,
     )  # fmt: skip
     G = effective_conductance(h_ice, h_snow, K_ICE_FRESH, k_snow)
 
@@ -354,9 +369,11 @@ def _ice_columns(
     hsb_blend = A_w * hsb_w + A_ice * fl["hsb"]
     hlb_blend = A_w * hlb_w + A_ice * fl["hlb"]
 
-    return [
+    diag = {k: fl[k] for k in ("zeta", "Rib", "zeta_limited", "qc_rib")}
+    cols = [
         fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],
         fl["R_star"], fl["z0T"], fl["z0q"],
         tau_blend, hsb_blend, hlb_blend,
         T_ice, F_cond, lw_net, sw_net, seb_res, tau_form,
     ]  # fmt: skip
+    return cols, diag

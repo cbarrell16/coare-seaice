@@ -100,7 +100,7 @@ def test_ice_columns_exact_given_v2_open_water(inputs, name):
         method = "prescribed"
     # v2's open-water roughness from its Cdn_10 column: Cdn_10 = 1e3 k^2 / ln(10/zo)^2.
     zo_v2 = 10.0 / np.exp(0.4 / np.sqrt(A[:, 30] / 1000.0))
-    cols = _ice_columns(
+    cols, _ = _ice_columns(
         u=inputs["u"], t=t, rh=rh, P=P, Rs=kw["Rs"], Rl=kw["Rl"],
         grav=thermo.gravity(kw["lat"]),
         zu=kw["zu"] * np.ones(n), zt=kw["zt"] * np.ones(n), zq=kw["zq"] * np.ones(n),

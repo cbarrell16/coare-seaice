@@ -7,14 +7,54 @@ using the COARE 3.5 stability functions and either the Andreas (1987) scalar rou
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from .roughness import NU_AIR, a87_scalar_roughness
 from .stability import psit_26, psiu_26
 from .thermo import LAPSE_DRY, LS_ICE, qsat_ice
 
-# AUDIT F1: hard-coded stability clip |zeta| <= 10 with no flag (to be changed in task F1).
-ZETA_CLIP = 10.0
+ZETA_MAX_DEFAULT = 10.0  # limit on |zeta| = |zu / L| in the iteration (the v2 value)
+RIB_CRITICAL = 0.2  # Grachev et al. (2007): critical bulk Richardson number, Ri_B,cr ~ 0.2
+
+
+@dataclass(frozen=True)
+class SurfaceLayerOptions:
+    """Numerical and physical options of :func:`ice_surface_layer`.
+
+    zeta_max : the stability parameter zeta = zu / L is limited to [-zeta_max, zeta_max]
+        while iterating. Without a limit the iteration has no solution in some very
+        stable, light-wind cases (the turbulent flux collapses). The limit is a numerical
+        device, not physics: where it acts the result is set by the limit, and the output
+        ``zeta_limited`` is True. The default, 10, is the v2 value.
+    rib_critical : samples with a bulk Richardson number above this are flagged
+        (``qc_rib``). Grachev et al. (2007) find Ri_B,cr ~ 0.2 at SHEBA and state that
+        their profile functions are valid for Ri_B < Ri_B,cr (text after their Eq. 8 and
+        Eq. 13); zeta ~ 10 corresponds on average to Ri_B ~ 0.2 there (their Fig. 3).
+    """
+
+    zeta_max: float = ZETA_MAX_DEFAULT
+    rib_critical: float = RIB_CRITICAL
+
+
+DEFAULT_OPTIONS = SurfaceLayerOptions()
+
+
+def bulk_richardson(theta_air, t_sfc, q_air, q_sfc, u, z, ta, grav):
+    """Bulk Richardson number between the surface and height z (Grachev et al. 2007, Eq. 8).
+
+        Ri_B = (g z / theta_v) (d_theta + 0.61 theta_v d_q) / U^2,
+
+    with d_theta and d_q the air-minus-surface differences in potential temperature (K)
+    and specific humidity (kg/kg), so Ri_B > 0 is stable. theta_v is taken as
+    ta (1 + 0.61 q_air) with ta in K; U is the measured wind at z = zu with no floor, so
+    Ri_B is large (or infinite) in calm conditions. Temperature and humidity measured at
+    other heights are used as they are.
+    """
+    thv = ta * (1.0 + 0.61 * q_air)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return grav * z / thv * ((theta_air - t_sfc) + 0.61 * thv * (q_air - q_sfc)) / u**2
 
 
 def ice_surface_layer(
@@ -36,6 +76,7 @@ def ice_surface_layer(
     ice_scheme,
     scalar_ratio,
     nits=10,
+    options=DEFAULT_OPTIONS,
 ):
     """Turbulent fluxes over the ice fraction (v2 ``_ice_fluxes``).
 
@@ -46,6 +87,11 @@ def ice_surface_layer(
     Returns a dict of arrays: tau, hsb, hlb (fluxes, heat positive upward), Cdn, Chn,
     Cen (neutral 10 m coefficients x 1e3), R_star, z0T, z0q, h_s and h_l (bulk
     conductances: H = h_s (Ts - theta), LE = h_l (qs - q)), Qs (kg/kg) and L (m).
+
+    Stability diagnostics and flags (see :class:`SurfaceLayerOptions`): zeta (= zu / L as
+    used in the final pass), zeta_limited (True where the limit on |zeta| acted in the
+    last iteration), Rib (bulk Richardson number) and qc_rib (True where
+    Rib > options.rib_critical: outside the validated range of the stability functions).
     """
     N = u.size
     z0_ice = z0_ice * np.ones(N)
@@ -73,9 +119,8 @@ def ice_surface_layer(
     for _ in range(nits):
         z0T_i, z0q_i, R_star = scalar_rough(usr_i)
         tvsr_i = tsr_i + 0.61 * ta * qsr_i
-        zet_i = np.clip(
-            von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6), -ZETA_CLIP, ZETA_CLIP
-        )
+        zet_raw = von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6)
+        zet_i = np.clip(zet_raw, -options.zeta_max, options.zeta_max)
         safe = np.abs(zet_i) > 1e-6
         L_i = np.where(safe, zu / np.where(safe, zet_i, 1.0), 1e6)
         psi_m = psiu_26(zu / L_i)
@@ -108,6 +153,7 @@ def ice_surface_layer(
 
     z0T_s, z0q_s = np.maximum(z0T_i, 1e-9), np.maximum(z0q_i, 1e-9)
     lz = np.log(10.0 / z0_ice)
+    rib = bulk_richardson(t + LAPSE_DRY * zt, t_sfc, Q_air, Qs_ice, u, zu, ta, grav)
     return dict(
         tau=tau_ice,
         hsb=hsb_ice,
@@ -122,4 +168,8 @@ def ice_surface_layer(
         h_l=rhoa * LS_ICE * Cq_i * ut,
         Qs=Qs_ice,
         L=L_i,
+        zeta=zet_i,
+        zeta_limited=np.abs(zet_raw) > options.zeta_max,
+        Rib=rib,
+        qc_rib=rib > options.rib_critical,
     )
