@@ -11,9 +11,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .roughness import NU_AIR_V2, R_MAX, a87_scalar_roughness
+from .roughness import ICE_Z0_DEFAULT, NU_AIR_V2, R_MAX, a87_scalar_roughness
 from .stability import STABILITY_FUNCTIONS
-from .thermo import LAPSE_DRY, LS_ICE, TDK, air_viscosity, qsat_ice
+from .thermo import (
+    LAPSE_DRY,
+    LS_ICE,
+    TDK,
+    air_viscosity,
+    latent_heat_vaporisation,
+    qsat_ice,
+    qsat_sea,
+)
 
 ZETA_MAX_DEFAULT = 10.0  # limit on |zeta| = |zu / L| in the iteration (the v2 value)
 RIB_CRITICAL = 0.2  # Grachev et al. (2007): critical bulk Richardson number, Ri_B,cr ~ 0.2
@@ -140,12 +148,26 @@ def ice_surface_layer(
     scalar_ratio,
     nits=10,
     options=DEFAULT_OPTIONS,
+    z0T=None,
+    z0q=None,
+    surface="ice",
 ):
     """Turbulent fluxes over the ice fraction (v2 ``_ice_fluxes``).
 
     u (m/s at zu), t (deg C at zt), Q_air (kg/kg at zq), t_ice (deg C, capped at 0 C),
     P (mb), grav (m s-2), zu/zt/zq (m, arrays), rhoa (kg m-3), cpa, von, fdg constants,
-    ta = t + 273.16 (K). z0_ice is a scalar momentum roughness (m).
+    ta = t + 273.16 (K). z0_ice is the momentum roughness (m): a number, one value per
+    sample, or a function ``f(u_star, nu)`` evaluated in the iteration (for example
+    :func:`coare_seaice.roughness.z0_andreas2010_winter`).
+
+    ice_scheme sets the scalar roughness: 'blended_a87' (Andreas 1987), 'simple'
+    (scalar_ratio * z0) or 'prescribed' (the arrays ``z0T`` and ``z0q``, m).
+
+    surface="water" solves a water surface with given roughness lengths instead: the
+    surface humidity is saturation over sea water (0.98 x saturation over water), the
+    latent heat is that of vaporisation and the surface temperature is not capped. It is
+    for comparisons with roughness lengths anchored to observations; open water normally
+    comes from COARE through pycoare.
 
     Returns a dict of arrays: tau, hsb, hlb (fluxes, heat positive upward), Cdn, Chn,
     Cen (neutral 10 m coefficients x 1e3), R_star, z0T, z0q, h_s and h_l (bulk
@@ -164,10 +186,21 @@ def ice_surface_layer(
     the Andreas 1987 fit; the ratio z0T/z0 is then held at its R* = 1000 value).
     """
     N = u.size
-    z0_ice = z0_ice * np.ones(N)
+    z0_fn = z0_ice if callable(z0_ice) else None
+    z0_ice = (ICE_Z0_DEFAULT if z0_fn else z0_ice) * np.ones(N)  # first guess if a function
+    if surface not in ("ice", "water"):
+        raise ValueError("surface must be 'ice' or 'water'")
+    if ice_scheme == "prescribed" and (z0T is None or z0q is None):
+        raise ValueError("ice_scheme='prescribed' needs z0T and z0q")
 
-    t_sfc = np.minimum(t_ice, 0.0)
-    Qs_ice = qsat_ice(t_sfc, P)
+    if surface == "ice":
+        t_sfc = np.minimum(t_ice, 0.0)
+        Qs_ice = qsat_ice(t_sfc, P)
+        latent = LS_ICE
+    else:
+        t_sfc = t_ice * np.ones(N)
+        Qs_ice = qsat_sea(t_sfc, P)
+        latent = latent_heat_vaporisation(t_sfc)
     dt_ice = t_sfc - t - LAPSE_DRY * zt  # potential temperature difference
     dq_ice = Qs_ice - Q_air
 
@@ -190,12 +223,16 @@ def ice_surface_layer(
     def scalar_rough(usr):
         if ice_scheme == "blended_a87":
             return a87_scalar_roughness(z0_ice, usr, nu, guard=options.a87_guard)
+        if ice_scheme == "prescribed":
+            return z0T * np.ones(N), z0q * np.ones(N), z0_ice * usr / nu
         return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / nu
 
     # A fixed number of iterations (as COARE); convergence is reported, not assumed.
     dH = dLE = np.full(N, np.inf)
     for _ in range(nits):
         H_prev, LE_prev = usr_i * tsr_i, usr_i * qsr_i
+        if z0_fn is not None:
+            z0_ice = z0_fn(usr_i, nu) * np.ones(N)
         z0T_i, z0q_i, R_star = scalar_rough(usr_i)
         tvsr_i = tsr_i + 0.61 * ta * qsr_i
         zet_raw = von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6)
@@ -221,7 +258,7 @@ def ice_surface_layer(
         tsr_i = -dt_ice * von * fdg / denom_t
         qsr_i = -dq_ice * von * fdg / denom_q
         dH = rhoa * cpa * np.abs(usr_i * tsr_i - H_prev)
-        dLE = rhoa * LS_ICE * np.abs(usr_i * qsr_i - LE_prev)
+        dLE = rhoa * latent * np.abs(usr_i * qsr_i - LE_prev)
 
     # Final pass with the L of the last iteration. u* needs no update here: the last
     # iteration already computed it from this L (tested in test_final_usr_is_consistent).
@@ -237,7 +274,7 @@ def ice_surface_layer(
 
     tau_ice = rhoa * usr_i**2
     hsb_ice = -rhoa * cpa * usr_i * tsr_i
-    hlb_ice = -rhoa * LS_ICE * usr_i * qsr_i
+    hlb_ice = -rhoa * latent * usr_i * qsr_i
 
     z0T_s, z0q_s = np.maximum(z0T_i, 1e-9), np.maximum(z0q_i, 1e-9)
     lz = np.log(10.0 / z0_ice)
@@ -250,10 +287,11 @@ def ice_surface_layer(
         Chn=1000 * von**2 * fdg / (lz * np.log(10.0 / z0T_s)),
         Cen=1000 * von**2 * fdg / (lz * np.log(10.0 / z0q_s)),
         R_star=R_star,
+        z0=z0_ice,
         z0T=z0T_i,
         z0q=z0q_i,
         h_s=rhoa * cpa * Ct_i * ut,
-        h_l=rhoa * LS_ICE * Cq_i * ut,
+        h_l=rhoa * latent * Cq_i * ut,
         Qs=Qs_ice,
         L=L_i,
         usr=usr_i,

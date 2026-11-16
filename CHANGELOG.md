@@ -49,6 +49,17 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   -0.09 W m-2 on average over stable cases (at most 3.3 W m-2); with the energy-balance
   method by -0.64 W m-2 on average (at most 7.8 W m-2), and T_ice by up to 2.2 K. The
   stability limit acts slightly more often with them (17 against 9 of 300 cases).
+- **T7.** Roughness options. `z0_ice` (or a tile's `z0`) may be a number, one value per
+  sample, a name, or a function of the friction velocity. Names (`roughness.ICE_ROUGHNESS`)
+  are the MetUM "Smooth" and "Rough" settings of Renfrew et al. (2019, Table 1) and the
+  regional drag coefficients collected by Srivastava et al. (2022, Table 2, discussion
+  paper), each with its source and interquartile range. `"andreas2010_winter"` is the
+  winter sea-ice formula of Andreas et al. (2010, J. Hydrometeorol., Eq. 5.1), solved
+  inside the iteration. Scalar roughness lengths can be prescribed on a tile (`z0t`,
+  `z0q`). A water tile with all three roughness lengths given is solved with them
+  instead of COARE (no cool skin, no gustiness), for anchoring open-water coefficients
+  to observations as Elvidge et al. (2021) do; given COARE's own roughness lengths it
+  agrees with COARE within 2 % at winds of 9 m s-1 and above. Default unchanged.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 

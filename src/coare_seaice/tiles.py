@@ -36,9 +36,16 @@ class Tile:
     t_surface : a surface temperature method (see
         :mod:`coare_seaice.surface_temperature.methods`); None takes the ``t_ice``
         argument of :func:`coare_seaice.ice_fluxes`.
-    z0 : momentum roughness length (m), a number or one value per sample; None takes the
-        ``z0_ice`` argument.
-    scalar_scheme : "a87" (Andreas 1987) or "ratio" (z0T = z0q = scalar_ratio * z0).
+    z0 : momentum roughness length: a number or one value per sample (m), a name from
+        :data:`coare_seaice.roughness.ICE_ROUGHNESS`, "andreas2010_winter", or a
+        function of (u*, nu). None takes the ``z0_ice`` argument.
+    scalar_scheme : "a87" (Andreas 1987), "ratio" (z0T = z0q = scalar_ratio * z0) or
+        "prescribed" (the values ``z0t`` and ``z0q``, m; giving them selects it).
+    A water tile with ``z0``, ``z0t`` and ``z0q`` all given is solved with those
+    roughness lengths instead of COARE, at the sea surface temperature, with no
+    cool-skin correction and no gustiness (unless the options switch it on). This is for
+    anchoring the open-water transfer coefficients to observations, as Elvidge et al.
+    (2021) do.
     h_ice, h_snow, k_snow, albedo, t_base : thickness (m), snow conductivity, albedo
         (None: 0.85 with more than 2 cm of snow, else 0.65) and ice-base temperature,
         used by energy-balance methods and for the reported conductive flux.
@@ -49,7 +56,9 @@ class Tile:
     fraction: Callable
     form_drag: bool = False
     t_surface: object | None = None
-    z0: float | np.ndarray | None = None
+    z0: float | np.ndarray | str | Callable | None = None
+    z0t: float | np.ndarray | None = None
+    z0q: float | np.ndarray | None = None
     scalar_scheme: str = "a87"
     scalar_ratio: float = 0.2
     h_ice: float | np.ndarray = 1.0
@@ -61,8 +70,16 @@ class Tile:
     def __post_init__(self):
         if self.kind not in ("water", "ice"):
             raise ValueError("Tile.kind must be 'water' or 'ice'")
-        if self.scalar_scheme not in ("a87", "ratio"):
-            raise ValueError("Tile.scalar_scheme must be 'a87' or 'ratio'")
+        if (self.z0t is None) != (self.z0q is None):
+            raise ValueError("Tile: give both z0t and z0q, or neither")
+        if self.z0t is not None:
+            object.__setattr__(self, "scalar_scheme", "prescribed")
+        if self.scalar_scheme not in ("a87", "ratio", "prescribed"):
+            raise ValueError("Tile.scalar_scheme must be 'a87', 'ratio' or 'prescribed'")
+        if self.scalar_scheme == "prescribed" and self.z0t is None:
+            raise ValueError("Tile: scalar_scheme='prescribed' needs z0t and z0q")
+        if self.kind == "water" and (self.z0 is None) != (self.z0t is None):
+            raise ValueError("a water tile with prescribed roughness needs z0, z0t and z0q")
 
     def with_(self, **changes):
         """A copy with some settings changed."""
@@ -77,15 +94,18 @@ def _ice(sic):
     return sic
 
 
-def two_tile(**ice):
-    """Open water and ice: fractions 1 - sic and sic. Keywords set the ice tile."""
+def two_tile(water=None, **ice):
+    """Open water and ice: fractions 1 - sic and sic.
+
+    Keywords set the ice tile; ``water`` is a dict of settings for the water tile.
+    """
     return [
-        Tile("water", "water", _water),
+        Tile("water", "water", _water, **(water or {})),
         Tile("thick_ice", "ice", _ice, form_drag=True, **ice),
     ]
 
 
-def three_tile(thin_fraction, of="water", thin=None, **thick):
+def three_tile(thin_fraction, of="water", thin=None, water=None, **thick):
     """Open water, thin ice and thick ice.
 
     thin_fraction : number or one value per sample, between 0 and 1: the share that is
@@ -100,7 +120,7 @@ def three_tile(thin_fraction, of="water", thin=None, **thick):
         ice (h_ice=0.1, h_snow=0.0). Its surface temperature method is the ``t_ice``
         argument of :func:`coare_seaice.ice_fluxes` unless set here; an energy-balance
         method (``SEB()``) is what makes a thin tile differ from the thick one.
-    Other keywords set the thick-ice tile.
+    water : dict of settings for the water tile. Other keywords set the thick-ice tile.
 
     With thin_fraction = 0 the result equals :func:`two_tile`.
     """
@@ -116,7 +136,7 @@ def three_tile(thin_fraction, of="water", thin=None, **thick):
     else:
         fractions = (_water, lambda s: f * s, lambda s: (1 - f) * s)
     return [
-        Tile("water", "water", fractions[0]),
+        Tile("water", "water", fractions[0], **(water or {})),
         Tile("thin_ice", "ice", fractions[1], form_drag=(of == "ice"), **thin_kw),
         Tile("thick_ice", "ice", fractions[2], form_drag=True, **thick),
     ]

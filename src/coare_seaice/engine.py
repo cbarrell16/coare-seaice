@@ -16,7 +16,7 @@ from .form_drag import lupkes_form_drag
 from .most import DEFAULT_OPTIONS, V2_OPTIONS, bulk_richardson, ice_surface_layer
 from .openwater import open_water
 from .results import BlendedResult, FluxResult, TileResult
-from .roughness import ICE_Z0_DEFAULT
+from .roughness import ICE_Z0_DEFAULT, resolve_ice_roughness
 from .surface_temperature.methods import AirFreezing, SurfaceTemperature, TileContext
 from .surface_temperature.seb import seb_terms, surface_albedo
 from .tiles import tile_fractions
@@ -24,6 +24,7 @@ from .tiles import tile_fractions
 NITS = 10  # iterations of the ice surface-layer loop
 LIGHT_WIND = 1.0  # m s-1; Grachev et al. (2007) excluded winds of 1 m s-1 and below
 BLEND_MODES = ("flux", "single_temperature")
+_SCHEMES = {"a87": "blended_a87", "ratio": "simple", "prescribed": "prescribed"}
 
 
 @dataclass
@@ -94,7 +95,31 @@ def _water_tile(tile, fraction, ow, F, sst):
         cdn10=ow.cdn_rf, chn10=ow.chn_rf, cen10=ow.cen_rf, L=ow.obukhov_length, zeta=ow.zet,
         rib=rib, wind_eff=ow.ut,
         qc={"rib_above_critical": rib > DEFAULT_OPTIONS.rib_critical, "missing_input": missing},
-        extra={"open_water": ow},
+        extra={"open_water": ow, "u10n": ow.u_n_rf},
+    )  # fmt: skip
+
+
+def _prescribed_water_tile(tile, fraction, F, ow, sst, options):
+    """A water tile with given roughness lengths (no COARE, no cool skin)."""
+    n = F.n
+    fl = ice_surface_layer(
+        u=F.u, t=F.t, Q_air=ow.q_air, t_ice=sst, z0_ice=_per_sample(tile.z0, n), P=F.p,
+        grav=thermo.gravity(F.lat), zu=F.zu, zt=F.zt, zq=F.zq, rhoa=ow.rhoa, cpa=thermo.CPA,
+        von=thermo.VON, fdg=thermo.FDG, ta=F.t + thermo.TDK, ice_scheme="prescribed",
+        scalar_ratio=1.0, nits=NITS, options=options, z0T=tile.z0t, z0q=tile.z0q,
+        surface="water",
+    )  # fmt: skip
+    u10n = fl["usr"] / thermo.VON * np.log(10.0 / fl["z0"])
+    missing = ~np.all([np.isfinite(x) for x in (F.u, F.t, F.rh, F.p, F.lat, sst)], axis=0)
+    return TileResult(
+        name=tile.name, kind="water", fraction=fraction, tau=fl["tau"], hsb=fl["hsb"],
+        hlb=fl["hlb"], usr=fl["usr"], t_surface=sst, q_surface=fl["Qs"], z0=fl["z0"],
+        z0t=fl["z0T"], z0q=fl["z0q"], cdn10=fl["Cdn"] / 1e3, chn10=fl["Chn"] / 1e3,
+        cen10=fl["Cen"] / 1e3, rstar=fl["R_star"], L=fl["L"], zeta=fl["zeta"], rib=fl["Rib"],
+        wind_eff=fl["S"],
+        qc={"rib_above_critical": fl["qc_rib"], "zeta_limited": fl["zeta_limited"],
+            "not_converged": fl["not_converged"], "missing_input": missing},
+        extra={"u10n": u10n},
     )  # fmt: skip
 
 
@@ -103,7 +128,8 @@ def _ice_tile(tile, fraction, F, ow, q_air, default_method, default_z0, options,
     """Surface temperature, fluxes and energy-balance terms for one ice tile."""
     n = F.n
     method = tile.t_surface if tile.t_surface is not None else default_method
-    z0 = _per_sample(default_z0 if tile.z0 is None else tile.z0, n)
+    z0 = resolve_ice_roughness(default_z0 if tile.z0 is None else tile.z0)
+    z0 = z0 if callable(z0) else _per_sample(z0, n)
 
     def setting(name):  # the method's own value wins over the tile's
         own = getattr(method, name, None)
@@ -118,8 +144,8 @@ def _ice_tile(tile, fraction, F, ow, q_air, default_method, default_z0, options,
         u=F.u, t=F.t, Q_air=q_air, z0_ice=z0, P=F.p, grav=thermo.gravity(F.lat),
         zu=F.zu, zt=F.zt, zq=F.zq, rhoa=ow.rhoa, cpa=thermo.CPA, von=thermo.VON,
         fdg=thermo.FDG, ta=F.t + thermo.TDK,
-        ice_scheme="blended_a87" if tile.scalar_scheme == "a87" else "simple",
-        scalar_ratio=tile.scalar_ratio, nits=NITS, options=options,
+        ice_scheme=_SCHEMES[tile.scalar_scheme], scalar_ratio=tile.scalar_ratio, nits=NITS,
+        options=options, z0T=tile.z0t, z0q=tile.z0q,
     )  # fmt: skip
 
     def flux(Ts):
@@ -148,7 +174,8 @@ def _ice_tile(tile, fraction, F, ow, q_air, default_method, default_z0, options,
     filled = np.zeros(n, dtype=bool) if st.filled is None else st.filled
     return TileResult(
         name=tile.name, kind="ice", fraction=fraction, tau=fl["tau"], hsb=fl["hsb"],
-        hlb=fl["hlb"], usr=fl["usr"], t_surface=Ts, q_surface=fl["Qs"], z0=z0, z0t=fl["z0T"],
+        hlb=fl["hlb"], usr=fl["usr"], t_surface=Ts, q_surface=fl["Qs"], z0=fl["z0"],
+        z0t=fl["z0T"],
         z0q=fl["z0q"], cdn10=fl["Cdn"] / 1e3, chn10=fl["Chn"] / 1e3, cen10=fl["Cen"] / 1e3,
         rstar=fl["R_star"], L=fl["L"], zeta=fl["zeta"], rib=fl["Rib"], wind_eff=fl["S"],
         lw_net=lw_net, sw_net=sw_net, f_cond=f_cond, seb_residual=residual,
@@ -216,7 +243,9 @@ def compute(
         out = {}
         for tile in tiles:
             f = fractions[tile.name]
-            if tile.kind == "water":
+            if tile.kind == "water" and tile.z0 is not None:
+                out[tile.name] = _prescribed_water_tile(tile, f, F, ow, sst, options)
+            elif tile.kind == "water":
                 out[tile.name] = _water_tile(tile, f, ow, F, sst)
             else:
                 out[tile.name] = _ice_tile(tile, f, F, ow, q_air, default_method, default_z0,
@@ -240,7 +269,7 @@ def compute(
     # Floe-edge form drag (momentum only): neutral 10 m coefficient x U10N^2 over water.
     a_form = sum(fractions[t.name] for t in tiles if t.form_drag)
     cdn10_form = lupkes_form_drag(a_form, water.z0)
-    tau_form = ow.rhoa * cdn10_form * ow.u_n_rf**2
+    tau_form = ow.rhoa * cdn10_form * water.extra["u10n"] ** 2
 
     def area_mean(name):
         return sum(r.fraction * getattr(r, name) for r in results.values())
