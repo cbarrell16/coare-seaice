@@ -31,10 +31,10 @@ Methods details (written to the log and to OUT_DIR/igp_verification_methods.md):
 - Ship position at an aircraft run time: linear interpolation of the 10-min ship
   latitude and longitude in time. Distance: great circle.
 - Aircraft runs: the IGP long-run (9 km) database. Over the sea only (orog < 10 m), low
-  level (radar altitude <= MAX_ALT, 60 m, for parts B and C), wind present. Part B
-  repeats the statistics for distance limits DIST_STEPS_KM to show the sensitivity to
-  distance from the ship. Terrain height (orog)
-  is missing for some flights; those runs are kept (the database lists them over sea).
+  level (radar altitude <= MAX_ALT, 60 m, for part C; <= MAX_ALT_B, 100 m, for part B),
+  wind present. Part B repeats the statistics for distance limits DIST_STEPS_KM to
+  show the sensitivity to distance from the ship. Terrain height (orog) is missing for
+  some flights; those runs are kept (the database lists them over sea).
   Quality: z0_flag <= 1 for stress,
   z0T_flag <= 1 for sensible heat, z0q_flag <= 1 for latent heat, as the database readme
   recommends. Ice fraction: icefractionalb (albedo thresholds 0.15 and 0.85).
@@ -77,7 +77,10 @@ ZT = ZQ = 8.0
 COARE = "3.5"
 JCOOL_SHIP = 1  # cool skin on for the ship, with default radiation (see RS_SHIP, RL_SHIP)
 RS_SHIP, RL_SHIP = 150.0, 370.0  # no radiation in the ship file: pycoare-style defaults
-MAX_ALT = 60.0  # aircraft runs at or below this radar altitude (m), parts B and C
+MAX_ALT = 60.0  # part C: aircraft runs at or below this radar altitude (m)
+# Part B: few low runs were flown near the ship, so allow higher runs (results also given
+# for runs at or below MAX_ALT).
+MAX_ALT_B = 100.0
 # Part B: distance from the ship is relaxed in steps to test sensitivity. Few low runs were
 # flown close to the ship, so the comparison is loose; the main limit is MAX_DIST_KM.
 DIST_STEPS_KM = (10.0, 25.0, 50.0, 100.0, 150.0, 200.0)
@@ -244,9 +247,9 @@ air["dist_ship_km"] = great_circle_km(air.lat, air.lon, slat, slon)
 # B. Ship bulk vs aircraft eddy covariance near the ship
 # ---------------------------------------------------------------------------
 log.info("\n" + "=" * 78)
-log.info(f"B. Ship bulk vs aircraft eddy covariance: runs at or below {MAX_ALT:.0f} m, by "
+log.info(f"B. Ship bulk vs aircraft eddy covariance: runs at or below {MAX_ALT_B:.0f} m, by "
          f"distance from the ship (main limit {MAX_DIST_KM:.0f} km)\n")  # fmt: skip
-near = air[low & (air.dist_ship_km <= max(DIST_STEPS_KM))].copy()
+near = air[sea & (air.altradgps <= MAX_ALT_B) & (air.dist_ship_km <= max(DIST_STEPS_KM))].copy()
 # nearest ship window in time (10 min windows; keep matches within MAX_DT_MIN)
 pos = np.searchsorted(ship.index.to_numpy(), near.time.to_numpy())
 pos = np.clip(pos, 1, len(ship) - 1)
@@ -292,6 +295,11 @@ for k, obs, unit, flag in FLUXES:
         s_band = stats(getattr(b_ice.blended, k)[m], o[m])
         log.info(f"      {lo:3.0f}-{hi:<3.0f} km {fmt(s_band, unit)}")
     m0 = q & (dist <= MAX_DIST_KM)
+    alt = near.altradgps.to_numpy()
+    for lo, hi in ((0.0, MAX_ALT), (MAX_ALT, MAX_ALT_B)):
+        m = m0 & (alt > lo) & (alt <= hi)
+        log.info(f"    {lo:3.0f}-{hi:<3.0f} m, <= {MAX_DIST_KM:.0f} km "
+                 f"{fmt(stats(getattr(b_ice.blended, k)[m], o[m]), unit)}")  # fmt: skip
     log.info(f"    same runs <= {MAX_DIST_KM:.0f} km, aircraft-driven bulk "
              f"{fmt(stats(getattr(b_air.blended, k)[m0], o[m0]), unit)}")  # fmt: skip
     log.info(
@@ -415,7 +423,7 @@ plt.close(fig)
     f"- ship cool skin {'on' if JCOOL_SHIP else 'off'}, radiation {RS_SHIP}/{RL_SHIP} W m-2 "
     "(none in the ship file)\n"
     f"- aircraft runs: radar altitude <= {MAX_ALT} m, over the sea, database flags <= {QC_MAX}\n"
-    f"- part B: runs <= {MAX_ALT} m; distance steps {DIST_STEPS_KM} km (main "
+    f"- part B: runs <= {MAX_ALT_B} m; distance steps {DIST_STEPS_KM} km (main "
     f"{MAX_DIST_KM} km); ship window within {MAX_DT_MIN} min\n"
 )
 log.info(f"\nWrote figures, CSV tables and methods to {OUT_DIR}")

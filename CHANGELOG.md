@@ -19,7 +19,7 @@ project uses [semantic versioning](https://semver.org/).
 - IGP verification script: ship temperature/humidity height set to 8 m (the sensor
   height, from Chris; was 20 m, inferred from the best fit). Against the stored COARE
   3.0a fluxes, sensible heat is now +2.7 W m-2 and latent heat +1.5 W m-2 (median; were
-  -0.2 and -0.0). Part B now uses only runs at or below 60 m (was 150 m), reports the
+  -0.2 and -0.0). Part B now uses runs at or below 100 m (was 150 m; 60 m runs reported separately), reports the
   results for cumulative distance limits of 10-200 km, and adds aircraft-driven bulk
   fluxes for the same runs.
 
