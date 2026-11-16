@@ -139,8 +139,9 @@ def coare35vn_ice(
         surface_layer_options  a :class:`coare_seaice.most.SurfaceLayerOptions`
                         (stability limit and flag threshold); default as v2
         return_diagnostics  if True, return ``(array, diagnostics)``; ``diagnostics`` is a
-                        dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``
-                        and the flags ``zeta_limited``, ``qc_rib`` and ``qc_rstar`` (see
+                        dict of per-sample arrays for the ice fraction: ``zeta``, ``Rib``,
+                        ``iter_dH``, ``iter_dLE`` and the flags ``zeta_limited``,
+                        ``qc_rib``, ``qc_rstar`` and ``not_converged`` (see
                         :func:`coare_seaice.most.ice_surface_layer`). Empty without ice.
 
     ``_v2_compat=True`` switches off every audit fix of release 0.3.0 that changes
@@ -403,7 +404,11 @@ def _ice_columns(
     hsb_blend = A_w * hsb_w + A_ice * fl["hsb"]
     hlb_blend = A_w * hlb_w + A_ice * fl["hlb"]
 
-    diag = {k: fl[k] for k in ("zeta", "Rib", "zeta_limited", "qc_rib", "qc_rstar")}
+    diag = {
+        k: fl[k]
+        for k in ("zeta", "Rib", "zeta_limited", "qc_rib", "qc_rstar", "iter_dH", "iter_dLE",
+                  "not_converged")
+    }  # fmt: skip
     cols = [
         fl["tau"], fl["hsb"], fl["hlb"], fl["Cdn"], fl["Chn"], fl["Cen"],
         fl["R_star"], fl["z0T"], fl["z0q"],

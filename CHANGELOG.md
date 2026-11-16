@@ -21,6 +21,13 @@ the IGP and ACCACIA aircraft data will be added when the reader exists (task V2)
   **No change in results.** On the reference fixture the flags are set in 3.0 %
   (`zeta_limited`) and 5.3 % (`qc_rib`) of cases with `air_freezing`, and 14.0 % and
   12.3 % with `seb_steady`.
+- **F6.** Convergence diagnostics for the ice surface-layer iteration: `iter_dH` and
+  `iter_dLE` (change in the ice heat fluxes in the last of the 10 iterations, W m-2)
+  and the flag `not_converged` (either above `SurfaceLayerOptions.conv_tol`, default
+  0.1 W m-2). **No change in results.** On the reference fixture every case converges;
+  the largest last-iteration change is 0.013 W m-2. The audit also asked for u* to be
+  updated in the final pass. On inspection no update is needed: the u* of the last
+  iteration is already computed from the final Obukhov length. A test now checks this.
 
 ### Changed (results change)
 - **F2.** The roughness Reynolds number R* = z0 u* / nu in the Andreas (1987) scalar

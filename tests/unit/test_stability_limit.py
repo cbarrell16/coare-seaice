@@ -98,3 +98,36 @@ def test_rstar_flag_f3():
     )  # fmt: skip
     assert big["R_star"][0] > 1000 and big["qc_rstar"].all()
     assert np.isfinite(big["hsb"]).all()
+
+
+def test_convergence_diagnostic_f6():
+    u = np.array([0.6, 3.0, 8.0, 15.0, 25.0, 4.0])
+    t = np.array([-25.0, -10.0, -5.0, -20.0, -2.0, -30.0])
+    fl = _solve(u=u, t=t, t_ice=-8.0)
+    assert np.isfinite(fl["iter_dH"]).all() and np.isfinite(fl["iter_dLE"]).all()
+    assert fl["not_converged"].dtype == bool
+    # ten iterations and two hundred agree where the solver reports convergence
+    n = u.size
+    P = np.full(n, 1000.0)
+    q = thermo.specific_humidity(t, P, np.full(n, 80.0))
+    kw = dict(
+        u=u, t=t, Q_air=q, t_ice=np.full(n, -8.0), z0_ice=5e-4, P=P,
+        grav=np.full(n, 9.82), zu=np.full(n, 10.0), zt=np.full(n, 10.0), zq=np.full(n, 10.0),
+        rhoa=thermo.air_density(t, P, q), cpa=thermo.CPA, von=thermo.VON, fdg=thermo.FDG,
+        ta=t + thermo.TDK, ice_scheme="blended_a87", scalar_ratio=0.2,
+    )  # fmt: skip
+    long = ice_surface_layer(nits=200, **kw)
+    ok = ~fl["not_converged"]
+    assert ok.sum() >= 4
+    np.testing.assert_allclose(fl["hsb"][ok], long["hsb"][ok], atol=0.1)
+    np.testing.assert_allclose(fl["tau"][ok], long["tau"][ok], rtol=1e-3)
+
+
+def test_final_usr_is_consistent_f6():
+    # tau = rho u*^2 with u* from the final L: equals U k / (ln(z/z0) - psi_m(z/L)).
+    from coare_seaice.stability import psiu_26
+
+    fl = _solve(u=[5.0], t=[-10.0], t_ice=-18.0)
+    rho = thermo.air_density(-10.0, 1000.0, thermo.specific_humidity(-10.0, 1000.0, 80.0))
+    usr = 5.0 * 0.4 / (np.log(10.0 / 5e-4) - psiu_26(10.0 / fl["L"][0]))
+    assert np.isclose(fl["tau"][0], rho * usr**2, rtol=1e-12)

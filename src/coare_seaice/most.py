@@ -39,12 +39,15 @@ class SurfaceLayerOptions:
         extrapolated beyond R* = 1000 (see
         :func:`coare_seaice.roughness.a87_scalar_roughness`); the output ``qc_rstar`` is
         True where R* > 1000.
+    conv_tol : the output ``not_converged`` is True where the sensible or latent heat flux
+        still changed by more than this (W m-2) in the last iteration. Diagnostic only.
     """
 
     zeta_max: float = ZETA_MAX_DEFAULT
     rib_critical: float = RIB_CRITICAL
     viscosity: str = "coare"
     a87_guard: bool = True
+    conv_tol: float = 0.1
 
     def __post_init__(self):
         if self.viscosity not in ("coare", "constant"):
@@ -108,6 +111,9 @@ def ice_surface_layer(
     used in the final pass), zeta_limited (True where the limit on |zeta| acted in the
     last iteration), Rib (bulk Richardson number) and qc_rib (True where
     Rib > options.rib_critical: outside the validated range of the stability functions).
+    iter_dH and iter_dLE are the changes in the ice sensible and latent heat flux in the
+    last iteration (W m-2) and not_converged is True where either exceeds
+    options.conv_tol (or is not finite).
     qc_rstar is True where R* > 1000 with the 'blended_a87' scheme (beyond the range of
     the Andreas 1987 fit; the ratio z0T/z0 is then held at its R* = 1000 value).
     """
@@ -134,8 +140,10 @@ def ice_surface_layer(
             return a87_scalar_roughness(z0_ice, usr, nu, guard=options.a87_guard)
         return scalar_ratio * z0_ice, scalar_ratio * z0_ice, z0_ice * usr / nu
 
-    # AUDIT F6: fixed number of iterations with no convergence diagnostic (task F6).
+    # A fixed number of iterations (as COARE); convergence is reported, not assumed.
+    dH = dLE = np.full(N, np.inf)
     for _ in range(nits):
+        H_prev, LE_prev = usr_i * tsr_i, usr_i * qsr_i
         z0T_i, z0q_i, R_star = scalar_rough(usr_i)
         tvsr_i = tsr_i + 0.61 * ta * qsr_i
         zet_raw = von * grav * zu / ta * tvsr_i / np.maximum(usr_i**2, 1e-6)
@@ -153,9 +161,11 @@ def ice_surface_layer(
         usr_i = ut * von / denom_m
         tsr_i = -dt_ice * von * fdg / denom_t
         qsr_i = -dq_ice * von * fdg / denom_q
+        dH = rhoa * cpa * np.abs(usr_i * tsr_i - H_prev)
+        dLE = rhoa * LS_ICE * np.abs(usr_i * qsr_i - LE_prev)
 
-    # Final pass with the converged u* and L.
-    # AUDIT F6: u* is not updated in this final pass (to be changed in task F6).
+    # Final pass with the L of the last iteration. u* needs no update here: the last
+    # iteration already computed it from this L (tested in test_final_usr_is_consistent).
     z0T_i, z0q_i, R_star = scalar_rough(usr_i)
     denom_t = np.log(zt / np.maximum(z0T_i, 1e-9)) - psit_26(zt / L_i)
     denom_q = np.log(zq / np.maximum(z0q_i, 1e-9)) - psit_26(zq / L_i)
@@ -192,4 +202,7 @@ def ice_surface_layer(
         Rib=rib,
         qc_rib=rib > options.rib_critical,
         qc_rstar=(R_star > R_MAX) & (ice_scheme == "blended_a87"),
+        iter_dH=dH,
+        iter_dLE=dLE,
+        not_converged=~((dH <= options.conv_tol) & (dLE <= options.conv_tol)),
     )
