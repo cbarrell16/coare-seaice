@@ -20,6 +20,13 @@ Tiles and the new interface (tasks T1-T9, U1). Nothing here changes the results 
   `Prescribed`, `SEB` and the experimental `Column`. A method is any object with a
   `solve(ctx)` method, so a new one needs no change elsewhere (tested). They give the
   same numbers as the existing functions.
+- **T3.** Tiles (`tiles.Tile`, `two_tile()`, `three_tile()`) and the engine that solves
+  each tile and blends the fluxes by area fraction, with the floe-edge form drag added
+  to the stress (`engine.compute`). Two tiles reproduce the legacy output to rounding;
+  three tiles with no thin ice equal two tiles (both tested). The thin-ice share can be
+  taken from the water fraction (default; no form drag) or from the ice fraction.
+  The thin-ice defaults (0.1 m of bare ice) are provisional until task T10. Blended
+  results carry quality flags that never change a value.
 
 ## [0.3.0] - unreleased (branch `release/0.3.0`)
 

@@ -195,6 +195,8 @@ class Column:
         if ctx.time is None:
             raise ValueError("the Column method needs time (s)")
         h_ice, h_snow, albedo = ctx.h_ice, ctx.h_snow, ctx.albedo
+        # samples with a missing thickness or albedo get no value (not the median)
+        no_slab = ~(np.isfinite(h_ice) & np.isfinite(h_snow) & np.isfinite(albedo))
         if not ctx.v2_compat:
             varying = [
                 name
@@ -234,6 +236,10 @@ class Column:
         )  # fmt: skip
         ran = np.isfinite(res["Ts"])
         Ts = np.where(ran, res["Ts"], T_ss)
+        filled = ~ran & np.isfinite(T_ss)
+        if not ctx.v2_compat:
+            Ts = np.where(no_slab, np.nan, Ts)
+            filled &= ~no_slab
         if ctx.v2_compat:
             # v2 back-calculated the flux through an effective conductance, which is wrong
             # (and can be enormous) when the surface is warmer than the base.
@@ -245,9 +251,7 @@ class Column:
         f_cond = G * (ctx.t_base - np.minimum(Ts, 0.0))  # steady value where not running
         if not ctx.v2_compat:
             f_cond = np.where(np.isfinite(res["F_cond"]), res["F_cond"], f_cond)
-        return SurfaceTemperature(
-            Ts, filled=~ran & np.isfinite(T_ss), seb_residual=res["melt"], f_cond=f_cond
-        )
+        return SurfaceTemperature(Ts, filled=filled, seb_residual=res["melt"], f_cond=f_cond)
 
 
 _NAMES = {
