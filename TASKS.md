@@ -21,7 +21,7 @@ Every task that touches equations, constants or results ends with a `physics-rev
 | P2 | `openwater.py`: adapter over the public `pycoare` interface returning the quantities the ice code needs (fluxes, final z0, 10 m neutral wind, air density, humidity) | opus | – | cloud | Open-water fluxes equal plain `pycoare` exactly. Works for COARE 3.5 and 3.6. |
 | P3 | `legacy.coare35vn_ice`: the v2 call signature and 56-column array, built on P1 and P2 | opus | P1, P2 | cloud | Columns 38–55 match stored v2 outputs to 1e-3 relative on 2000 synthetic cases for every `t_ice_method`; columns 0–37 match v2 within the documented `pycoare` differences; any column that cannot be reproduced is listed. |
 | P4 | Store v2 reference outputs as a test fixture (outputs only, generated from synthetic inputs) | sonnet | – | cloud | Fixture under 300 kB with a README recording how it was made. |
-| P5 | 🔶 Run the shared ROVER flux file through `legacy.coare35vn_ice` and through v2; confirm they agree | sonnet | P3 | UEA | Differences reported per column; Chris signs off the port. |
+| P5 | 🔶 Reprocess the shared ROVER flux file with `scripts/p5_reprocess_rover_legacy.py` (`air_freezing`, v2 bug fixes only) and check it against v2 | Chris | P3 | UEA | Log shows ice-only columns identical to v2, open-water columns within about 0.1 W m⁻², no NaN mismatches. Chris signs off the port. See `docs/guides/install_and_reprocess.md`. |
 
 ## Release 0.3.0 — audit fixes, one per pull request
 
@@ -80,7 +80,8 @@ Each fix states in `CHANGELOG.md` how much results move on the reference fixture
 | D1 | Methods documentation, one page per module, equations with paper references | docs-writer | P1 | cloud | `mkdocs build --strict` passes; every equation cites its source. |
 | D2 | User guide with a worked example on synthetic data | docs-writer | T5 | cloud | Example runs in CI. |
 | D3 | Migration guide from `coare35vn_ice` | docs-writer | T5 | cloud | Chris's notebook calls map one to one. |
-| R1 | 🔶 Send the courtesy note to the `pycoare` maintainer (`docs/drafts/pycoare_maintainer_note.md`) | Chris | – | – | Reply recorded; name confirmed. |
+| R1a | 🔶 Post the `pycoare` bug report (`docs/drafts/pycoare_issue_rh_mutation.md`) as an issue on pyCOARE/coare | Chris | – | – | Issue posted; link recorded here. |
+| R1b | 🔶 Send the courtesy note to the `pycoare` maintainer (`docs/drafts/pycoare_maintainer_note.md`), linking R1a | Chris | R1a | – | Reply recorded; name confirmed before any PyPI registration. |
 | R2 | 🔶 Release 1.0.0: tag, Zenodo archive, PyPI | fable + Chris | all | – | Only on Chris's explicit go-ahead. |
 
 ## Open questions that block tasks

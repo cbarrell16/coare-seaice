@@ -16,6 +16,13 @@ project uses [semantic versioning](https://semver.org/).
   because `pycoare` and the NOAA code differ slightly in gravity and in a few constants.
   The defects found in the audit are deliberately still present and are marked
   `# AUDIT F<n>` in the code; they are fixed one at a time in tasks F1-F10.
+- `scripts/p5_reprocess_rover_legacy.py`: reprocesses ship fluxes with `air_freezing` and
+  checks the package against v2 (task P5).
+- Guides for reviewing and merging pull requests, and for installing and reprocessing.
+- Draft bug report for `pycoare` (in-place change of the caller's `rh` array).
+
+### Changed
+- Copyright holder in `LICENSE`: Chris Barrell.
 
 ## History before this repository
 

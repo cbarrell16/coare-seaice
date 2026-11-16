@@ -6,12 +6,16 @@ nav:
   - Home: index.md
   - Caveats: caveats.md
   - AI assistance: ai_assistance.md
+  - Guides:
+      - Reviewing and merging a pull request: guides/pull_requests.md
+      - Installing and reprocessing: guides/install_and_reprocess.md
   - Design:
       - Software design: design/software_design.md
       - Verification study design: design/verification_design.md
       - Paper outline: design/paper_outline.md
   - Drafts:
       - Note to the pycoare maintainer: drafts/pycoare_maintainer_note.md
+      - Bug report for pycoare: drafts/pycoare_issue_rh_mutation.md
 plugins:
   - search
   - mkdocstrings
