@@ -9,6 +9,8 @@ nav:
   - Guides:
       - Reviewing and merging a pull request: guides/pull_requests.md
       - Installing and reprocessing: guides/install_and_reprocess.md
+  - Verification:
+      - IGP 2018 first results: verification/igp_2018.md
   - Design:
       - Software design: design/software_design.md
       - Verification study design: design/verification_design.md

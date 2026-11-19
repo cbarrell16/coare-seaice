@@ -11,6 +11,22 @@ and careful reasoning; `fable` only for design decisions.
 Every task that touches equations, constants or results ends with a `physics-reviewer`
 (`opus`) pass before merging.
 
+## Where things stand (end of session, 16 Nov 2026)
+
+- **Done:** 0.2.0 (merged), 0.3.0 F1–F10 (merged, PR 3), 0.4.0 T1–T9 and U1 (PR 4, awaiting merge).
+- **Verification started (PR 5):** ROVER recompute script (`scripts/rover_00b_fluxes_coare_seaice.py`), and the first IGP ship and aircraft comparison (`docs/verification/igp_2018.md`). These are scripts, not yet the V1–V4 toolkit; they cover IGP only (not ACCACIA).
+- **Not started:** T10 proposal; V1–V4 as package code; V9, V10; the UEA tasks (V5–V8, V11, V12); admin (R1a, R1b, R2).
+
+**Left, in priority order:**
+1. 🔶 Merge PR 4, then PR 5.
+2. 🔶 Run `rover_00b_fluxes_coare_seaice.py` on the UEA machine and check the log against the expected differences in its docstring.
+3. 🔶 Check the temperature/humidity height used in the 2020 Alliance COARE 3.0a processing (sensor at about 8 m; stored fluxes fit 20 m best) and check the aircraft latent heat flux on flight 295 (suspect).
+4. IGP roughness test: rerun part C with `z0_ice="iceland_sea"` and with the open-water coefficients anchored (T7 water tile), as Elvidge et al. (2021) E10 does.
+5. T10 proposal from the IGP part C results (thin-ice tile with an energy-balance temperature against the aggregate-temperature result), then ACCACIA.
+6. V1–V4 as package code (`coare_seaice.verify`), folding in the two scripts; then V9, V10.
+7. 🔶 Decisions left from 0.3.0: snow heat capacity (2106) and k_ice (2.03 against 2.034); the `t_ice_fallback` default.
+8. 🔶 Admin: pycoare bug report and note (R1a, R1b); release and registration (R2).
+
 ## Release 0.2.0 — v2 ported, behaviour-identical
 
 **Status (14 Nov 2026):** P1–P4 done on branch `task/P1-P4-port-v2`, awaiting Chris's review. The stored reference uses 300 synthetic cases per run (15 runs), not 2000, to keep the fixtures small; the port was also checked against v2 on the full ROVER record outside the repository. P5 is open.
